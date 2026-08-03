@@ -21,4 +21,9 @@ export class PinImplementation implements Pin {
     subscribe(callback: () => void): void {
         this._callbacks.push(callback)
     }
+
+    unsubscribe(callback: () => void): void {
+        const index = this._callbacks.indexOf(callback)
+        if (index >= 0) this._callbacks.splice(index, 1)
+    }
 }

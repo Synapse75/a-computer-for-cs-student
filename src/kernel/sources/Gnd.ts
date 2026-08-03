@@ -1,10 +1,11 @@
-import type { Pin, Signal } from '../core/types'
+import type { Edge, Pin } from '../core/types'
 import { PinImplementation } from '../core/PinImplementation'
 import { BaseComponent } from '../core/BaseComponent'
 
 export class Gnd extends BaseComponent {
     name: string = 'Gnd'
     pins: Map<string, Pin>
+    pinEdges: Record<string, Edge> = { out: 'right' }
 
     constructor() {
         super()
