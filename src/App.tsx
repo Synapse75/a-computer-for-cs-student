@@ -263,7 +263,7 @@ function App() {
             const c = col + cell.col
             const r = row + cell.row
             if (cell.kind === 'not') {
-                const kernel = new Not()
+                const kernel = new Not(cell.rotation ?? 0)
                 const view = createNotView(kernel)
                 attachComponent(kernel, view, c, r)
             } else {

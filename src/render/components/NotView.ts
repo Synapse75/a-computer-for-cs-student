@@ -1,10 +1,18 @@
 import { Container, Graphics } from 'pixi.js'
 import type { Not } from '../../kernel/gates/Not'
+import type { Edge } from '../../kernel/core/types'
 import { GRID_SIZE } from '../utils/snap'
 import { COLORS } from '../theme'
 import type { ComponentView } from './types'
 
 const SIZE = GRID_SIZE
+
+const ANCHOR_BY_EDGE: Record<Edge, { x: number; y: number }> = {
+    left: { x: 0, y: SIZE / 2 },
+    right: { x: SIZE, y: SIZE / 2 },
+    top: { x: SIZE / 2, y: 0 },
+    bottom: { x: SIZE / 2, y: SIZE },
+}
 
 export function createNotView(not: Not): ComponentView {
     const root = new Container()
@@ -12,8 +20,8 @@ export function createNotView(not: Not): ComponentView {
     root.addChild(body)
 
     const pinAnchors = new Map<string, { x: number; y: number }>()
-    pinAnchors.set('in', { x: 0, y: SIZE / 2 })
-    pinAnchors.set('out', { x: SIZE, y: SIZE / 2 })
+    pinAnchors.set('in', ANCHOR_BY_EDGE[not.pinEdges.in])
+    pinAnchors.set('out', ANCHOR_BY_EDGE[not.pinEdges.out])
 
     for (const [, anchor] of pinAnchors) {
         const dot = new Graphics()

@@ -13,7 +13,7 @@ function runCase(prefab: Prefab, a: 0 | 1, b: 0 | 1): { out: 0 | 1; world: World
     for (const cell of prefab.cells) {
         const col = OX + cell.col
         const row = OY + cell.row
-        if (cell.kind === 'not') world.setComponent(col, row, new Not())
+        if (cell.kind === 'not') world.setComponent(col, row, new Not(cell.rotation ?? 0))
         else world.setWire(col, row)
     }
     const [ia, ib] = prefab.inputs

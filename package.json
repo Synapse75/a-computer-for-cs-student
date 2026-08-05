@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
+    "verify": "node --experimental-loader ./scripts/resolve-ts.mjs scripts/verify-prefabs.ts",
     "preview": "vite preview"
   },
   "dependencies": {

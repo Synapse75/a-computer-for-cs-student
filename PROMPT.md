@@ -7,6 +7,7 @@
 | 模块 | 状态 |
 |---|---|
 | 内核：基础元件 + 导线网络 | ✅ 完成 |
+| 内核：元件旋转 + 预制体布线器 | ✅ 完成 |
 | 预制体：NAND / AND / OR | ✅ 完成（真值表验证） |
 | 预制体：XOR | 🚧 布线进行中 |
 | 复合块 / 子系统 / CPU | ⏳ 未开始 |
@@ -38,6 +39,7 @@ Kernel（纯 TS：World 网格、网络 OR、元件 tick）
 - **导线网络**：同一连通网络的信号值 = 所有接入输出的 OR（并线），驱动所有接出的输入；任意位置分叉 / 合并。
 - **元件是边界**：输入侧与输出侧网络永不合并；信号只经元件内部逻辑传递。
 - **基础元件（方案 B）**：NOT（左入右出）+ 导线（被动导体）+ 信号源 Vcc(1) / Gnd(0) / Clock。
+- **元件旋转**：每个元件可旋转 0/90/180/270°（quarter turns），引脚随朝向变化；预制体可整体旋转。
 - **复杂元件 = NOT 组合（预制体）**：新建时生成多个已连线的独立 NOT，组合内每个方块可拖动、重连、删除。
 - **step 语义**：无输入源（Clock）每步只翻转一次；稳定循环只重算带输入的门，组合链逐步收敛。
 
@@ -50,6 +52,7 @@ src/
 │   ├── gates/         # Not
 │   ├── sources/       # Vcc, Gnd, Clock
 │   └── world/         # World（网格+网络）, prefabs（NAND/AND/OR + XOR 布线器）
+│                       #   布线器：A*（随机扰动） + 拆线重布（rip-up），种子可复现
 ├── render/            # PixiJS 渲染
 │   ├── components/    # 各元件视图, GridBackground, WireView
 │   ├── theme.ts       # 灰阶 + 低饱和色主题
@@ -58,7 +61,8 @@ src/
 │   └── components/    # ComponentPalette, ControlPanel
 └── main.tsx
 scripts/
-└── verify-prefabs.ts  # 预制体真值表验证
+├── verify-prefabs.ts  # 预制体真值表验证（node --experimental-loader scripts/resolve-ts.mjs）
+└── resolve-ts.mjs     # Node 原生 TS 加载器（补 .ts 扩展名）
 ```
 
 ## 交互
@@ -80,7 +84,8 @@ scripts/
 ## 路线图
 
 1. ✅ v0.1：基础元件 + 导线网络 + 工作台
-2. 🚧 复杂元件预制体（NAND / AND / OR 完成，XOR 布线中）
+2. 🚧 复杂元件预制体（NAND / AND / OR 完成；XOR 布线中：单网路由已通，
+   多网互锁导致 rip-up 乒乓，待改用通道式布线或手写通道布局）
 3. ⏳ 复合块：半加器、全加器、D 触发器、MUX、译码器
 4. ⏳ 子系统：ALU、寄存器堆、PC、RAM、CPU
 5. ⏳ 拆解 / 从零搭建模式；Hack 风格默认计算机
@@ -88,6 +93,7 @@ scripts/
 ## 验证
 
 - `scripts/verify-prefabs.ts`：NAND / AND / OR 全输入组合真值表（纯 TS，Node 运行）。
+- 布线器自检：`scripts/debug-xor-single.ts`（XOR 六条网各自单独路由均成功）。
 - Playwright（MCP / CLI 截图）验证界面渲染与交互。
 
 ## 默认演示电路

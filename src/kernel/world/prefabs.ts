@@ -2,6 +2,8 @@ export interface PrefabCell {
     col: number
     row: number
     kind: 'not' | 'wire' | 'port'
+    /** Component facing (quarter turns clockwise); applies to 'not' cells. */
+    rotation?: 0 | 1 | 2 | 3
 }
 
 export interface Prefab {
@@ -20,38 +22,52 @@ function cellKey(col: number, row: number): string {
     return `${col},${row}`
 }
 
-function astar(
+/** Deterministic PRNG (mulberry32) so prefab routing is reproducible per seed. */
+function mulberry32(seed: number): () => number {
+    let a = seed >>> 0
+    return () => {
+        a = (a + 0x6d2b79f5) | 0
+        let t = Math.imul(a ^ (a >>> 15), 1 | a)
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
+}
+
+interface Bounds {
+    minCol: number
+    minRow: number
+    maxCol: number
+    maxRow: number
+}
+
+function astarRand(
     start: Point,
     goal: Point,
     blocked: Set<string>,
-    minCol: number,
-    minRow: number,
-    maxCol: number,
-    maxRow: number
+    bounds: Bounds,
+    rng: () => number,
+    maxExpansions: number
 ): Point[] | null {
     if (start.col === goal.col && start.row === goal.row) return [start]
     const key = (p: Point) => cellKey(p.col, p.row)
     const h = (p: Point) => Math.abs(p.col - goal.col) + Math.abs(p.row - goal.row)
-    const open = new Map<string, Point>()
+    const open: Point[] = [start]
+    const openIdx = new Map<string, number>()
     const g = new Map<string, number>()
     const f = new Map<string, number>()
     const came = new Map<string, Point>()
     const closed = new Set<string>()
-    open.set(key(start), start)
+    openIdx.set(key(start), 0)
     g.set(key(start), 0)
     f.set(key(start), h(start))
-    while (open.size > 0) {
-        let bestKey: string | null = null
-        let bestF = Infinity
-        for (const k of open.keys()) {
-            const fv = f.get(k) ?? Infinity
-            if (fv < bestF) {
-                bestF = fv
-                bestKey = k
-            }
+    let expansions = 0
+    while (open.length > 0) {
+        if (++expansions > maxExpansions) return null
+        let bestIdx = 0
+        for (let i = 1; i < open.length; i++) {
+            if ((f.get(key(open[i])) ?? Infinity) < (f.get(key(open[bestIdx])) ?? Infinity)) bestIdx = i
         }
-        if (bestKey === null) return null
-        const cur = open.get(bestKey)!
+        const cur = open[bestIdx]
         if (key(cur) === key(goal)) {
             const path: Point[] = []
             let c: Point | undefined = cur
@@ -61,42 +77,151 @@ function astar(
             }
             return path.reverse()
         }
-        open.delete(bestKey)
-        closed.add(bestKey)
-        for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const last = open.pop()!
+        if (bestIdx < open.length) {
+            open[bestIdx] = last
+            openIdx.set(key(last), bestIdx)
+        }
+        openIdx.delete(key(cur))
+        closed.add(key(cur))
+        const dirs = ([[1, 0], [-1, 0], [0, 1], [0, -1]] as const).slice()
+        for (let i = dirs.length - 1; i > 0; i--) {
+            const j = Math.floor(rng() * (i + 1))
+            ;[dirs[i], dirs[j]] = [dirs[j], dirs[i]]
+        }
+        for (const [dc, dr] of dirs) {
             const n: Point = { col: cur.col + dc, row: cur.row + dr }
-            if (n.col < minCol || n.row < minRow || n.col > maxCol || n.row > maxRow) continue
+            if (n.col < bounds.minCol || n.row < bounds.minRow || n.col > bounds.maxCol || n.row > bounds.maxRow) continue
             const nk = key(n)
             if (closed.has(nk)) continue
             if (blocked.has(nk) && nk !== key(goal)) continue
-            const ng = (g.get(bestKey) ?? 0) + 1
+            const ng = (g.get(key(cur)) ?? 0) + 1
             if (!g.has(nk) || ng < g.get(nk)!) {
                 g.set(nk, ng)
-                f.set(nk, ng + h(n))
+                f.set(nk, ng + h(n) + rng() * 0.04)
                 came.set(nk, cur)
-                open.set(nk, n)
+                if (openIdx.has(nk)) {
+                    open[openIdx.get(nk)!] = n
+                } else {
+                    openIdx.set(nk, open.length)
+                    open.push(n)
+                }
             }
         }
     }
     return null
 }
 
-function routeNet(
+function routeChain(
     terminals: Point[],
     blocked: Set<string>,
-    minCol: number,
-    minRow: number,
-    maxCol: number,
-    maxRow: number
+    bounds: Bounds,
+    rng: () => number,
+    maxExpansions: number
 ): Point[] | null {
     const points: Point[] = []
     for (let i = 0; i < terminals.length - 1; i++) {
-        const seg = astar(terminals[i], terminals[i + 1], blocked, minCol, minRow, maxCol, maxRow)
+        const seg = astarRand(terminals[i], terminals[i + 1], blocked, bounds, rng, maxExpansions)
         if (!seg) return null
         if (i === 0) points.push(...seg)
         else points.push(...seg.slice(1))
     }
     return points
+}
+
+/**
+ * Sequential maze routing with rip-up-and-reroute: when a net cannot be routed,
+ * the most overlapping already-routed net is removed, the current net is routed,
+ * and the removed net is re-routed later. A per-seed iteration cap plus random
+ * A* jitter lets the search escape deadlocks across seeds.
+ */
+function routeNetlist(
+    netDefs: Record<string, Point[]>,
+    order: string[],
+    bounds: Bounds,
+    allCells: Set<string>,
+    cellKinds: Map<string, PrefabCell['kind']>,
+    rng: () => number,
+    maxIterations: number
+): Map<string, Point[]> | null {
+    const routed = new Map<string, Point[]>()
+    const pending: string[] = [...order]
+    let iterations = 0
+
+    const computeBlocked = (name: string, terminals: Point[]): Set<string> => {
+        const blocked = new Set<string>(allCells)
+        const own = new Set<string>(terminals.map((t) => cellKey(t.col, t.row)))
+        for (const t of allCells) {
+            if (own.has(t)) continue
+            const [c, r] = t.split(',').map(Number)
+            if (cellKinds.get(t) === 'not') {
+                // Components only connect through pin edges (NOT: left/right).
+                blocked.add(cellKey(c - 1, r))
+                blocked.add(cellKey(c + 1, r))
+            } else {
+                for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+                    blocked.add(cellKey(c + dc, r + dr))
+                }
+            }
+        }
+        for (const [name2, path] of routed) {
+            if (name2 === name) continue
+            for (const p of path) {
+                blocked.add(cellKey(p.col, p.row))
+                for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+                    blocked.add(cellKey(p.col + dc, p.row + dr))
+                }
+            }
+        }
+        return blocked
+    }
+
+    const tryRoute = (name: string): Point[] | null => {
+        const terminals = netDefs[name]
+        const blocked = computeBlocked(name, terminals)
+        return routeChain(terminals, blocked, bounds, rng, 12000)
+    }
+
+    const bboxOf = (pts: Point[]): Bounds => ({
+        minCol: Math.min(...pts.map((p) => p.col)),
+        maxCol: Math.max(...pts.map((p) => p.col)),
+        minRow: Math.min(...pts.map((p) => p.row)),
+        maxRow: Math.max(...pts.map((p) => p.row)),
+    })
+    const overlap = (a: Bounds, b: Bounds): number =>
+        Math.max(0, Math.min(a.maxCol, b.maxCol) - Math.max(a.minCol, b.minCol) + 1) *
+        Math.max(0, Math.min(a.maxRow, b.maxRow) - Math.max(a.minRow, b.minRow) + 1)
+
+    while (pending.length > 0) {
+        if (++iterations > maxIterations) return null
+        const name = pending.shift()!
+        let path = tryRoute(name)
+        if (path) {
+            routed.set(name, path)
+            continue
+        }
+        const currentBBox = bboxOf(netDefs[name])
+        const candidates = [...routed.keys()].sort(
+            (x, y) =>
+                overlap(bboxOf(netDefs[y]), currentBBox) - overlap(bboxOf(netDefs[x]), currentBBox) ||
+                x.localeCompare(y)
+        )
+        let ripped = false
+        for (const other of candidates.slice(0, 2)) {
+            const otherPath = routed.get(other)!
+            routed.delete(other)
+            path = tryRoute(name)
+            if (path) {
+                routed.set(name, path)
+                pending.unshift(other)
+                ripped = true
+                break
+            }
+            routed.set(other, otherPath)
+        }
+        if (!ripped) throw new Error(`XOR route failed for net ${name}`)
+    }
+    return routed
 }
 
 /**
@@ -145,88 +270,173 @@ export const OR_PREFAB: Prefab = fromAscii([
     'INNW.',
 ])
 
+// Wide NAND: inputs 4 rows apart so each port has its own exit lane
+// (top port exits up, bottom port exits down) — used for XOR composition.
+export const WIDE_NAND_PREFAB: Prefab = fromAscii([
+    'INW..',
+    '..WO.',
+    '..W..',
+    '..W..',
+    'INW..',
+])
+
+function rotatePoint(col: number, row: number, w: number, h: number, rotation: 0 | 1 | 2 | 3): { col: number; row: number } {
+    switch (rotation) {
+        case 1:
+            return { col: h - 1 - row, row: col }
+        case 2:
+            return { col: w - 1 - col, row: h - 1 - row }
+        case 3:
+            return { col: row, row: w - 1 - col }
+        default:
+            return { col, row }
+    }
+}
+
+/** Rotate a prefab 90° CW `rotation` times; NOTs rotate with it. */
+export function rotatePrefab(prefab: Prefab, rotation: 0 | 1 | 2 | 3): Prefab {
+    if (rotation === 0) return prefab
+    const width = Math.max(...prefab.cells.map((c) => c.col)) + 1
+    const height = Math.max(...prefab.cells.map((c) => c.row)) + 1
+    const cells: PrefabCell[] = prefab.cells.map((cell) => {
+        const p = rotatePoint(cell.col, cell.row, width, height, rotation)
+        return {
+            col: p.col,
+            row: p.row,
+            kind: cell.kind,
+            rotation: cell.kind === 'not' ? (((cell.rotation ?? 0) + rotation) % 4) as 0 | 1 | 2 | 3 : undefined,
+        }
+    })
+    const inputs = prefab.inputs.map((t) => rotatePoint(t.col, t.row, width, height, rotation))
+    const outputs = prefab.outputs.map((t) => rotatePoint(t.col, t.row, width, height, rotation))
+    return { name: prefab.name, cells, inputs, outputs }
+}
+
 // XOR = NAND(NAND(a, NAND(a,b)), NAND(b, NAND(a,b))) — 4 verified NAND prefabs
 // composed together; an A* router wires the 6 short inter-prefab nets with >=1
 // empty cell clearance (adjacent wire cells merge, so nets must never touch).
 function placePrefab(cells: PrefabCell[], prefab: Prefab, ox: number, oy: number): void {
     for (const cell of prefab.cells) {
-        cells.push({ col: cell.col + ox, row: cell.row + oy, kind: cell.kind })
+        cells.push({
+            col: cell.col + ox,
+            row: cell.row + oy,
+            kind: cell.kind,
+            rotation: cell.rotation,
+        })
     }
 }
 
-function buildXorVariant(ox2: number, oy2: number, ox3: number, oy3: number, ox4: number, oy4: number, order: string[]): Prefab {
+interface NandPlacement {
+    ox: number
+    oy: number
+    rotation: 0 | 1 | 2 | 3
+}
+
+function buildXorWithPlacements(
+    nand: Prefab,
+    placements: NandPlacement[],
+    order: string[],
+    rng: () => number
+): Prefab {
     const cells: PrefabCell[] = []
     const add = (col: number, row: number, kind: PrefabCell['kind']) => cells.push({ col, row, kind })
 
-    const o1 = { x: 0, y: 0 }
-    const o2 = { x: ox2, y: oy2 }
-    const o3 = { x: ox3, y: oy3 }
-    const o4 = { x: ox4, y: oy4 }
-    placePrefab(cells, NAND_PREFAB, o1.x, o1.y)
-    placePrefab(cells, NAND_PREFAB, o2.x, o2.y)
-    placePrefab(cells, NAND_PREFAB, o3.x, o3.y)
-    placePrefab(cells, NAND_PREFAB, o4.x, o4.y)
-    const outCol = Math.max(o1.x, o2.x, o3.x, o4.x) + 10
-    const outRow = 1
-    add(outCol, outRow, 'port')
+    const placed = placements.map((p) => ({
+        ...p,
+        prefab: rotatePrefab(nand, p.rotation),
+    }))
+    const [p1, p2, p3, p4] = placed
+    for (const p of placed) placePrefab(cells, p.prefab, p.ox, p.oy)
 
-    const pt = (o: { x: number; y: number }, col: number, row: number): Point => ({
-        col: o.x + col,
-        row: o.y + row,
+    const pt = (p: NandPlacement & { prefab: Prefab }, cell: { col: number; row: number }): Point => ({
+        col: p.ox + cell.col,
+        row: p.oy + cell.row,
     })
+    const in0 = (p: NandPlacement & { prefab: Prefab }) => pt(p, p.prefab.inputs[0])
+    const in1 = (p: NandPlacement & { prefab: Prefab }) => pt(p, p.prefab.inputs[1])
+    const out0 = (p: NandPlacement & { prefab: Prefab }) => pt(p, p.prefab.outputs[0])
+
+    const outPort = { col: Math.max(...placements.map((p) => p.ox)) + 20, row: 1 }
+    add(outPort.col, outPort.row, 'port')
 
     const nets: Record<string, Point[]> = {
-        a: [pt(o1, 0, 0), pt(o2, 0, 0)],
-        b: [pt(o1, 0, 2), pt(o3, 0, 0)],
-        X: [pt(o1, 3, 1), pt(o2, 0, 2), pt(o3, 0, 2)],
-        Y1: [pt(o2, 3, 1), pt(o4, 0, 0)],
-        Y2: [pt(o3, 3, 1), pt(o4, 0, 2)],
-        OUT: [pt(o4, 3, 1), { col: outCol, row: outRow }],
+        a: [in0(p1), in0(p2)],
+        b: [in1(p1), in0(p3)],
+        X: [out0(p1), in1(p2), in1(p3)],
+        Y1: [out0(p2), in0(p4)],
+        Y2: [out0(p3), in1(p4)],
+        OUT: [out0(p4), outPort],
     }
 
     const allTerminalAndComp = new Set<string>()
+    const cellKinds = new Map<string, PrefabCell['kind']>()
     for (const cell of cells) allTerminalAndComp.add(cellKey(cell.col, cell.row))
-    for (const net of Object.values(nets)) for (const t of net) allTerminalAndComp.add(cellKey(t.col, t.row))
+    for (const cell of cells) cellKinds.set(cellKey(cell.col, cell.row), cell.kind)
+    for (const net of Object.values(nets)) {
+        for (const t of net) {
+            const k = cellKey(t.col, t.row)
+            allTerminalAndComp.add(k)
+            if (!cellKinds.has(k)) cellKinds.set(k, 'port')
+        }
+    }
 
-    const routedCells = new Set<string>()
-    for (const name of order) {
-        const net = nets[name]
-        const thisNetTerminals = new Set<string>(net.map((t) => cellKey(t.col, t.row)))
-        const blocked = new Set<string>(allTerminalAndComp)
-        for (const k of routedCells) {
-            blocked.add(k)
-            const [c, r] = k.split(',').map(Number)
-            for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-                blocked.add(cellKey(c + dc, r + dr))
-            }
-        }
-        for (const t of allTerminalAndComp) {
-            if (thisNetTerminals.has(t)) continue
-            const [c, r] = t.split(',').map(Number)
-            for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
-                blocked.add(cellKey(c + dc, r + dr))
-            }
-        }
-        const path = routeNet(net, blocked, -30, -30, outCol + 20, 30)
-        if (!path) throw new Error(`XOR route failed for net ${name}`)
+    const allTerminals = Object.values(nets).flat()
+    const bounds: Bounds = {
+        minCol: Math.min(...allTerminals.map((t) => t.col)) - 8,
+        maxCol: Math.max(...allTerminals.map((t) => t.col), outPort.col) + 8,
+        minRow: Math.min(...allTerminals.map((t) => t.row)) - 8,
+        maxRow: Math.max(...allTerminals.map((t) => t.row)) + 8,
+    }
+    const routed = routeNetlist(nets, order, bounds, allTerminalAndComp, cellKinds, rng, 80)
+    if (!routed) throw new Error('XOR route failed')
+    for (const path of routed.values()) {
         for (const p of path) {
             const k = cellKey(p.col, p.row)
-            if (!allTerminalAndComp.has(k)) {
-                add(p.col, p.row, 'wire')
-                routedCells.add(k)
-            }
+            if (!allTerminalAndComp.has(k)) add(p.col, p.row, 'wire')
         }
     }
 
     return {
         name: 'Xor',
         cells,
-        inputs: [pt(o1, 0, 0), pt(o1, 0, 2)],
-        outputs: [{ col: outCol, row: outRow }],
+        inputs: [in0(p1), in1(p1)],
+        outputs: [outPort],
     }
 }
 
-const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; ox4: number; oy4: number }> = [
+export function buildXorVariant(ox2: number, oy2: number, ox3: number, oy3: number, ox4: number, oy4: number, order: string[], seed = 0): Prefab {
+    return buildXorWithPlacements(
+        NAND_PREFAB,
+        [
+            { ox: 0, oy: 0, rotation: 0 },
+            { ox: ox2, oy: oy2, rotation: 0 },
+            { ox: ox3, oy: oy3, rotation: 0 },
+            { ox: ox4, oy: oy4, rotation: 0 },
+        ],
+        order,
+        mulberry32(seed)
+    )
+}
+
+export function buildXorVariantWide(ox2: number, oy2: number, ox3: number, oy3: number, ox4: number, oy4: number, order: string[], seed = 0): Prefab {
+    return buildXorWithPlacements(
+        WIDE_NAND_PREFAB,
+        [
+            { ox: 0, oy: 0, rotation: 0 },
+            { ox: ox2, oy: oy2, rotation: 0 },
+            { ox: ox3, oy: oy3, rotation: 0 },
+            { ox: ox4, oy: oy4, rotation: 0 },
+        ],
+        order,
+        mulberry32(seed)
+    )
+}
+
+export function buildXorRotated(placements: NandPlacement[], order: string[], seed = 0): Prefab {
+    return buildXorWithPlacements(WIDE_NAND_PREFAB, placements, order, mulberry32(seed))
+}
+
+export const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; ox4: number; oy4: number }> = [
     { ox2: -24, oy2: 0, ox3: 20, oy3: 4, ox4: 0, oy4: 20 },
     { ox2: 10, oy2: 4, ox3: 20, oy3: 0, ox4: 30, oy4: 4 },
     { ox2: 10, oy2: 0, ox3: 20, oy3: 4, ox4: 30, oy4: 0 },
@@ -234,9 +444,11 @@ const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; 
     { ox2: 10, oy2: 0, ox3: 20, oy3: 0, ox4: 30, oy4: 4 },
     { ox2: 20, oy2: 8, ox3: 40, oy3: 0, ox4: 60, oy4: 8 },
     { ox2: 30, oy2: 12, ox3: 60, oy3: 0, ox4: 90, oy4: 12 },
+    { ox2: 0, oy2: 40, ox3: 40, oy3: 0, ox4: 40, oy4: 40 },
+    { ox2: 0, oy2: 60, ox3: 60, oy3: 0, ox4: 60, oy4: 60 },
 ]
 
-const XOR_ORDERS: string[][] = [
+export const XOR_ORDERS: string[][] = [
     ['a', 'b', 'X', 'Y1', 'Y2', 'OUT'],
     ['b', 'a', 'X', 'Y1', 'Y2', 'OUT'],
     ['X', 'a', 'b', 'Y1', 'Y2', 'OUT'],
@@ -246,17 +458,17 @@ const XOR_ORDERS: string[][] = [
 ]
 
 export function tryBuildXor(): Prefab | null {
-    let lastError: unknown = null
     for (const v of XOR_VARIANTS) {
         for (const order of XOR_ORDERS) {
-            try {
-                return buildXorVariant(v.ox2, v.oy2, v.ox3, v.oy3, v.ox4, v.oy4, order)
-            } catch (e) {
-                lastError = e
+            for (let seed = 0; seed < 60; seed++) {
+                try {
+                    return buildXorVariant(v.ox2, v.oy2, v.ox3, v.oy3, v.ox4, v.oy4, order, seed)
+                } catch {
+                    // next seed / variant
+                }
             }
         }
     }
-    void lastError
     return null
 }
 
