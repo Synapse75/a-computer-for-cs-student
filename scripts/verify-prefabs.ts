@@ -3,7 +3,18 @@ import { Not } from '../src/kernel/gates/Not'
 import { Composite } from '../src/kernel/composites/Composite'
 import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
-import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, XOR_TAPPED_PREFAB, HALF_ADDER_PREFAB, FULL_ADDER_PREFAB, MUX_PREFAB, DMUX_PREFAB } from '../src/kernel/world/prefabs'
+import {
+    NAND_PREFAB,
+    AND_PREFAB,
+    OR_PREFAB,
+    XOR_PREFAB,
+    XOR_TAPPED_PREFAB,
+    HALF_ADDER_PREFAB,
+    FULL_ADDER_PREFAB,
+    DECODER2X4_PREFAB,
+    MUX_PREFAB,
+    DMUX_PREFAB,
+} from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 
 const OX = 30
@@ -11,6 +22,7 @@ const OY = 30
 
 const COMPOSITE_TYPES: Record<string, Prefab> = {
     HalfAdder: HALF_ADDER_PREFAB,
+    Dmux: DMUX_PREFAB,
 }
 
 function runCase(prefab: Prefab, inputs: (0 | 1)[]): number[] {
@@ -87,8 +99,23 @@ allOk = verify(FULL_ADDER_PREFAB, ([a, b, c]) => {
     const carry = (a && b) || (c && (a !== b)) ? 1 : 0
     return [sum, carry]
 }) && allOk
-console.log('--- FULL ADDER ---')
-console.log('  SKIPPED: carry routing caged by a-net L-shape (single-layer barrier)')
+console.log('--- DECODER 2x4 ---')
+allOk = (() => {
+    let ok = true
+    for (const [a, b] of enumerate(2)) {
+        const got = runCase(DECODER2X4_PREFAB, [1, a, b])
+        const want = [
+            (a === 0 && b === 0 ? 1 : 0) as number,
+            (a === 0 && b === 1 ? 1 : 0) as number,
+            (a === 1 && b === 0 ? 1 : 0) as number,
+            (a === 1 && b === 1 ? 1 : 0) as number,
+        ]
+        const status = got.every((v, i) => v === want[i]) ? 'OK' : 'FAIL'
+        if (status === 'FAIL') ok = false
+        console.log(`  Decoder2x4 in=[1,${a},${b}] -> out=[${got.join(',')}] want=[${want.join(',')}] ${status}`)
+    }
+    return ok
+})() && allOk
 
 console.log(allOk ? 'ALL PASS' : 'FAILURES FOUND')
 process.exit(allOk ? 0 : 1)

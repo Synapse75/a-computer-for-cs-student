@@ -8,7 +8,7 @@
 - 导线网络：摆放导线方块，支持任意分叉与并线（OR），T / 十字接点可视化
 - 连续绘制与擦除：左键拖动画导线，右键拖动橡皮擦
 - 复杂元件预制体：NAND / AND / OR / XOR 由 NOT 组合自动生成（真值表验证）
-- 复合块预制体：半加器、全加器、MUX、DMUX（真值表验证；全加器为折叠式组合）
+- 复合块预制体：半加器、全加器、MUX、DMUX、译码器 2→4（真值表验证；全加器与译码器为折叠式组合）
 - 折叠 / 展开：Collapse 模式框选预制体折叠为单块（内部模拟），右键展开
 - 默认演示电路：打开即自动运行，展示 Clock 反相链与 DFF 沿锁存闪烁
 - 低饱和灰阶界面：深灰背景 + 点阵网格，低对比度
@@ -24,7 +24,7 @@ npm run lint     # 检查
 
 ## 使用
 
-1. 从左侧拖出元件到画布（NOT / Vcc / Gnd / Clock / DFF / NAND / AND / OR / XOR / HalfAdder / FullAdder / MUX / DMUX）。
+1. 从左侧拖出元件到画布（NOT / Vcc / Gnd / Clock / DFF / NAND / AND / OR / XOR / HalfAdder / FullAdder / Decoder 2×4 / MUX / DMUX）。
 2. 点 **Wire** 进入导线模式，按住左键拖动绘制导线；单击放一格，Esc 退出。
 3. 右键单击删除一格；按住右键拖动连续擦除沿线导线。
 4. 点 **Collapse** 进入折叠模式，框选一个已放置的预制体折叠成单块；右键该块展开。
@@ -64,9 +64,8 @@ React + Vite · TypeScript（strict）· PixiJS v8
 - ✅ 基础元件与导线网络
 - ✅ 工作台交互（拖放 / 画线 / 擦除 / 运行控制）
 - ✅ NAND / AND / OR / XOR 预制体（真值表验证）
-- ✅ 复合块：半加器、全加器、D 触发器、MUX、DMUX
+- ✅ 复合块：半加器、全加器、D 触发器、MUX、DMUX、译码器 2→4
 - ✅ Composite 折叠 / 展开
-- 🚧 复合块：译码器（单层布线墙，见 PROMPT.md）
 - ⏳ 子系统：ALU、寄存器堆、PC、RAM、CPU
 
 ## 许可证

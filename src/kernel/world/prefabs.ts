@@ -1,3 +1,5 @@
+import type { Edge } from '../core/types'
+
 export interface PrefabCell {
     col: number
     row: number
@@ -15,9 +17,23 @@ export interface Prefab {
     outputs: { col: number; row: number }[]
 }
 
+/** A collapsed composite placed at an offset inside a folded prefab. */
+export interface PlacedComposite {
+    prefab: string
+    ox: number
+    oy: number
+}
+
 interface Point {
     col: number
     row: number
+}
+
+const EDGE_DELTA: Record<Edge, Point> = {
+    left: { col: -1, row: 0 },
+    right: { col: 1, row: 0 },
+    top: { col: 0, row: -1 },
+    bottom: { col: 0, row: 1 },
 }
 
 function cellKey(col: number, row: number): string {
@@ -145,7 +161,8 @@ function routeNetlist(
     cellKinds: Map<string, PrefabCell['kind']>,
     rng: () => number,
     maxIterations: number,
-    maxExpansions = 12000
+    maxExpansions = 12000,
+    debug = false
 ): Map<string, Point[]> | null {
     const routed = new Map<string, Point[]>()
     const pending: string[] = [...order].sort(() => rng() - 0.5)
@@ -157,10 +174,17 @@ function routeNetlist(
         for (const t of allCells) {
             if (own.has(t)) continue
             const [c, r] = t.split(',').map(Number)
-            if (cellKinds.get(t) === 'not') {
+            const kind = cellKinds.get(t)
+            if (kind === 'not') {
                 // Components only connect through pin edges (NOT: left/right).
                 blocked.add(cellKey(c - 1, r))
                 blocked.add(cellKey(c + 1, r))
+            } else if (kind === 'composite') {
+                // Collapsed blocks connect only through their pin cells, which
+                // are separate 'port' entries that already block their own
+                // neighbourhood. Body-adjacent cells carry no signal, so wires
+                // may pass there (matches World semantics).
+                continue
             } else {
                 for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
                     blocked.add(cellKey(c + dc, r + dr))
@@ -201,8 +225,10 @@ function routeNetlist(
         let path = tryRoute(name)
         if (path) {
             routed.set(name, path)
+            if (debug) console.log(`  routed ${name} (it ${iterations})`)
             continue
         }
+        if (debug) console.log(`  FAIL ${name} (it ${iterations}), routed: ${[...routed.keys()].join(',')}`)
         const currentBBox = bboxOf(netDefs[name])
         const candidates = [...routed.keys()].sort(
             (x, y) =>
@@ -216,7 +242,9 @@ function routeNetlist(
             path = tryRoute(name)
             if (path) {
                 routed.set(name, path)
-                pending.unshift(other)
+                // Re-route the ripped net later (back of the queue) so it does
+                // not immediately rip this net back — breaks rip-up oscillation.
+                pending.push(other)
                 ripped = true
                 break
             }
@@ -234,7 +262,7 @@ function routeNetlist(
                     path = tryRoute(name)
                     if (path) {
                         routed.set(name, path)
-                        pending.unshift(a, b)
+                        pending.push(a, b)
                         ripped = true
                     } else {
                         routed.set(a, pa)
@@ -535,6 +563,142 @@ export function composePrefab(
         }
     }
     return { name: 'Composite', cells, inputs: [], outputs: [] }
+}
+
+/**
+ * Pin positions (wire cells) of a collapsed Composite placed at (ox,oy).
+ * Mirrors Composite's pin-edge assignment: inputs left/bottom, outputs right/top.
+ */
+export function compositePinsAt(
+    prefabName: string,
+    ox: number,
+    oy: number
+): { inputs: Point[]; outputs: Point[] } {
+    const prefab = PREFABS[prefabName]
+    if (!prefab) throw new Error(`unknown prefab ${prefabName}`)
+    const inputEdges: Edge[] = ['left', 'bottom']
+    const outputEdges: Edge[] = ['right', 'top']
+    const inputs = prefab.inputs.map((_, i) => {
+        const e = inputEdges[i]
+        return { col: ox + EDGE_DELTA[e].col, row: oy + EDGE_DELTA[e].row }
+    })
+    let outputEdgesUsed = outputEdges.slice(0, prefab.outputs.length)
+    if (outputEdgesUsed.includes('top') && inputEdges.includes('top')) {
+        outputEdgesUsed = outputEdgesUsed.filter((e) => e !== 'top')
+    }
+    const outputs = prefab.outputs.map((_, i) => {
+        const e = outputEdgesUsed[i]
+        return { col: ox + EDGE_DELTA[e].col, row: oy + EDGE_DELTA[e].row }
+    })
+    return { inputs, outputs }
+}
+
+/**
+ * Folded prefab composer: parts are single collapsed Composite cells; nets are
+ * routed between their pin cells with the seeded A* + rip-up router (>=1 empty
+ * cell clearance). Straight-wire interconnect only — no crossing needed when
+ * the part layout is chosen well.
+ */
+export function foldComposite(
+    parts: PlacedComposite[],
+    nets: Record<string, Point[]>,
+    order: string[],
+    seed: number,
+    options: {
+        inputs?: Point[]
+        outputs?: Point[]
+        iterations?: number
+        maxExpansions?: number
+        padding?: number
+        debug?: boolean
+    } = {}
+): Prefab {
+    const cells: PrefabCell[] = []
+    for (const p of parts) cells.push({ col: p.ox, row: p.oy, kind: 'composite', prefab: p.prefab })
+
+    const allCells = new Set<string>()
+    const cellKinds = new Map<string, PrefabCell['kind']>()
+    for (const cell of cells) {
+        const k = cellKey(cell.col, cell.row)
+        allCells.add(k)
+        cellKinds.set(k, 'composite')
+    }
+    for (const net of Object.values(nets)) {
+        for (const t of net) {
+            const k = cellKey(t.col, t.row)
+            if (allCells.has(k)) continue
+            allCells.add(k)
+            cellKinds.set(k, 'port')
+            cells.push({ col: t.col, row: t.row, kind: 'port' })
+        }
+    }
+
+    const allTerminals = Object.values(nets).flat()
+    const padding = options.padding ?? 10
+    const bounds: Bounds = {
+        minCol: Math.min(...allTerminals.map((t) => t.col)) - padding,
+        maxCol: Math.max(...allTerminals.map((t) => t.col)) + padding,
+        minRow: Math.min(...allTerminals.map((t) => t.row)) - padding,
+        maxRow: Math.max(...allTerminals.map((t) => t.row)) + padding,
+    }
+    // Fan-out nets with >2 terminals as hub-and-spoke segments (same first
+    // terminal as hub). A chained path can cage its own later terminals (the
+    // segment-1 route blocks every approach lane of segment-2's start), while
+    // independent spokes share only the hub cell and stay electrically one net.
+    const flatNets: Record<string, Point[]> = {}
+    const flatOrder: string[] = []
+    for (const name of order) {
+        const terminals = nets[name]
+        if (!terminals) continue
+        if (terminals.length <= 2) {
+            flatNets[name] = terminals
+            flatOrder.push(name)
+        } else {
+            for (let i = 1; i < terminals.length; i++) {
+                const n = `${name}#${i}`
+                flatNets[n] = [terminals[0], terminals[i]]
+                flatOrder.push(n)
+            }
+        }
+    }
+    for (const name of Object.keys(nets)) {
+        if (flatNets[name]) continue
+        const terminals = nets[name]
+        if (terminals.length <= 2) {
+            flatNets[name] = terminals
+            flatOrder.push(name)
+        } else {
+            for (let i = 1; i < terminals.length; i++) {
+                const n = `${name}#${i}`
+                flatNets[n] = [terminals[0], terminals[i]]
+                flatOrder.push(n)
+            }
+        }
+    }
+    const routed = routeNetlist(
+        flatNets,
+        flatOrder,
+        bounds,
+        allCells,
+        cellKinds,
+        mulberry32(seed),
+        options.iterations ?? 400,
+        options.maxExpansions ?? 20000,
+        options.debug ?? false
+    )
+    if (!routed) throw new Error('foldComposite: routing failed')
+    for (const path of routed.values()) {
+        for (const p of path) {
+            const k = cellKey(p.col, p.row)
+            if (!allCells.has(k)) cells.push({ col: p.col, row: p.row, kind: 'wire' })
+        }
+    }
+    return {
+        name: 'Folded',
+        cells,
+        inputs: options.inputs ?? [],
+        outputs: options.outputs ?? [],
+    }
 }
 
 /**
@@ -921,6 +1085,81 @@ export const FULL_ADDER_PREFAB: Prefab = (() => {
     }
 })()
 
+/**
+ * 2-to-4 decoder (folded): three collapsed DMux Composites.
+ *
+ *   DMUX1 (0,0):  in=1, sel=a        -> out0 = !a (right, 1,0)
+ *   DMUX2 (0,8):  in=!a, sel=b       -> out0 = !a.!b (right, 1,8), out1 = !a.b (top, 0,7)
+ *   DMUX3 (8,8):  in=a, sel=b        -> out0 = a.!b (right, 9,8), out1 = a.b (top, 8,7)
+ *
+ * Straight corridor lanes (no crossings):
+ *   a:  (0,1) -> row 4 east -> col 6 south -> (7,8) DMUX3.in0
+ *   b:  (0,9) -> row 10 east -> col 8 north -> (8,9) DMUX3.in1
+ *   !a: (1,0) -> up/around the top-left -> col -4 south -> row 8 east -> (-1,8)
+ */
+export const DECODER2X4_PREFAB: Prefab = (() => {
+    const cells: PrefabCell[] = []
+    const w = (col: number, row: number) => cells.push({ col, row, kind: 'wire' })
+    const p = (col: number, row: number) => cells.push({ col, row, kind: 'port' })
+    const comp = (col: number, row: number) => cells.push({ col, row, kind: 'composite', prefab: 'Dmux' })
+
+    comp(0, 0)
+    comp(0, 8)
+    comp(8, 8)
+
+    // vcc: port (-1,0) = DMUX1.in0
+    p(-1, 0)
+
+    // net a: (-1,2) -> DMUX1.in1 (0,1) -> row 4 -> col 6 -> DMUX3.in0 (7,8)
+    p(-1, 2)
+    w(0, 2)
+    w(0, 1)
+    w(0, 3)
+    w(0, 4)
+    for (let c = 1; c <= 6; c++) w(c, 4)
+    for (let r = 5; r <= 8; r++) w(6, r)
+    w(7, 8)
+
+    // net b: (-1,10) -> DMUX2.in1 (0,9) -> row 10 -> col 8 -> DMUX3.in1 (8,9)
+    p(-1, 10)
+    w(0, 10)
+    w(0, 9)
+    for (let c = 1; c <= 8; c++) w(c, 10)
+    w(8, 9)
+
+    // net !a: (1,0) -> up over the top -> left column -> row 8 -> DMUX2.in0 (-1,8)
+    w(1, 0)
+    w(2, 0)
+    w(2, -1)
+    w(2, -2)
+    w(2, -3)
+    for (let c = 1; c >= -4; c--) w(c, -3)
+    for (let r = -2; r <= 8; r++) w(-4, r)
+    for (let c = -3; c <= -1; c++) w(c, 8)
+
+    // output ports at the DMUX output pin cells
+    p(1, 8) // out0 = !a.!b
+    p(0, 7) // out1 = !a.b
+    p(9, 8) // out2 = a.!b
+    p(8, 7) // out3 = a.b
+
+    return {
+        name: 'Decoder2x4',
+        cells,
+        inputs: [
+            { col: -1, row: 0 }, // vcc (constant 1)
+            { col: -1, row: 2 }, // a
+            { col: -1, row: 10 }, // b
+        ],
+        outputs: [
+            { col: 1, row: 8 }, // out0 = !a.!b
+            { col: 0, row: 7 }, // out1 = !a.b
+            { col: 9, row: 8 }, // out2 = a.!b
+            { col: 8, row: 7 }, // out3 = a.b
+        ],
+    }
+})()
+
 
 export const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; ox4: number; oy4: number }> = [
     { ox2: -24, oy2: 0, ox3: 20, oy3: 4, ox4: 0, oy4: 20 },
@@ -959,12 +1198,14 @@ export function tryBuildXor(): Prefab | null {
 }
 
 export const PREFABS: Record<string, Prefab> = {
+    Not: NOT_PREFAB,
     Nand: NAND_PREFAB,
     And: AND_PREFAB,
     Or: OR_PREFAB,
     Xor: XOR_PREFAB,
     HalfAdder: HALF_ADDER_PREFAB,
     FullAdder: FULL_ADDER_PREFAB,
+    Decoder2x4: DECODER2X4_PREFAB,
     Mux: MUX_PREFAB,
     Dmux: DMUX_PREFAB,
 }

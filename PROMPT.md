@@ -14,9 +14,10 @@
 | 复合块：MUX | ✅ 完成（真值表验证） |
 | 复合块：DMUX 1→2 | ✅ 完成（真值表验证） |
 | 复合块：全加器（折叠式） | ✅ 完成（2 个折叠半加器 Composite + 直线互连，真值表 8/8） |
+| 复合块：译码器 2→4（折叠式） | ✅ 完成（3 个折叠 DMUX Composite + 直线走廊互连，真值表 4/4） |
 | 折叠/展开：Composite 内核组件 | ✅ 完成（单格折叠，内部迷你 World 模拟，最多 3 入 2 出） |
 | 折叠放置：Collapsed Place | ✅ 完成（拖出预制体以单块形式放置，右键展开） |
-| 复合块 / 子系统 / CPU | ⏳ 未开始 |
+| 子系统：ALU / 寄存器堆 / PC / RAM / CPU | ⏳ 未开始 |
 | 工作台 UI 与默认演示电路 | ✅ 完成 |
 
 ## 技术栈
@@ -58,8 +59,9 @@ src/
 │   ├── core/          # BaseComponent, Pin, PinImplementation, types
 │   ├── gates/         # Not
 │   ├── sources/       # Vcc, Gnd, Clock
-│   └── world/         # World（网格+网络）, prefabs（NAND/AND/OR + XOR 布线器）
+│   └── world/         # World（网格+网络）, prefabs（NAND/AND/OR + XOR 布线器 + 折叠组合器）
 │                       #   布线器：A*（随机扰动） + 拆线重布（rip-up），种子可复现
+│                       #   foldComposite：Composite 单格零件 + 引脚间直线布线（枢纽扇出拆分）
 ├── render/            # PixiJS 渲染
 │   ├── components/    # 各元件视图, GridBackground, WireView
 │   ├── theme.ts       # 灰阶 + 低饱和色主题
@@ -100,8 +102,9 @@ scripts/
    手写通道布局：a 左通道、b 直下、X 上下双分支、Y1/Y2 分列 16/18 通道）
 3. 🚧 复合块：半加器 ✅、D 触发器 ✅、MUX ✅、DMUX 1→2 ✅、
    全加器 ✅（折叠式：2 个 HalfAdder Composite + 直线互连，绕开布线墙）；
-   译码器被单层布线墙封锁（a 网 L 形 + 桩线横穿通道）——
-   待平面嵌入 / 轨道分配 / 折叠式方案
+   译码器 2→4 ✅（折叠式：3 个 DMUX Composite + 直线走廊互连，免交叉）
+   —— 4 AND + 2 NOT 的纯译码器布局仍在布线墙内（多扇出网路互相封锁），
+   待改进布线器（联合路由 / 斯坦纳树）后回填
 4. ⏳ 子系统：ALU、寄存器堆、PC、RAM、CPU
 5. ⏳ 拆解 / 从零搭建模式；Hack 风格默认计算机
 

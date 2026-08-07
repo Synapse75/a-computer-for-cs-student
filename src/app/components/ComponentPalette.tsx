@@ -13,6 +13,7 @@ const componentTypes = [
     { type: 'Xor', label: 'XOR' },
     { type: 'HalfAdder', label: 'Half Adder' },
     { type: 'FullAdder', label: 'Full Adder' },
+    { type: 'Decoder2x4', label: 'Decoder 2×4' },
     { type: 'Mux', label: 'MUX' },
     { type: 'Dmux', label: 'DMUX' },
 ] as const
