@@ -517,8 +517,9 @@ export const XOR_PREFAB: Prefab = (() => {
     w(7, 34)
     w(6, 34)
     for (let r = 33; r >= -8; r--) w(6, r)
-    for (let c = 7; c <= 14; c++) w(c, -8)
-    for (let r = -7; r <= -1; r++) w(14, r)
+    for (let c = 7; c <= 19; c++) w(c, -8)
+    for (let r = -7; r <= 0; r++) w(19, r)
+    for (let c = 18; c >= 14; c--) w(c, 0)
 
     // --- net b ---
     for (let r = 35; r <= 59; r++) w(14, r)
@@ -570,6 +571,30 @@ export const XOR_PREFAB: Prefab = (() => {
     }
 })()
 
+/**
+ * Half adder: SUM = a XOR b, CARRY = a AND b.
+ * Reuses the XOR prefab: X = NAND(a,b) is tapped inside, one extra NOT
+ * computes CARRY = NOT(X) = a AND b.
+ */
+export const HALF_ADDER_PREFAB: Prefab = (() => {
+    const cells: PrefabCell[] = XOR_PREFAB.cells.map((cell) => ({ ...cell }))
+    // CARRY = NOT(X): rotated NOT at (9,-3) reads X's wire (9,-2) from below,
+    // outputs upward, then east along row -4 to port (17,-4).
+    cells.push({ col: 9, row: -3, kind: 'not', rotation: 3 })
+    cells.push({ col: 9, row: -4, kind: 'wire' })
+    for (let c = 10; c <= 17; c++) cells.push({ col: c, row: -4, kind: 'wire' })
+    cells.push({ col: 17, row: -4, kind: 'port' })
+    return {
+        name: 'HalfAdder',
+        cells,
+        inputs: XOR_PREFAB.inputs,
+        outputs: [
+            { col: 14, row: 92 }, // SUM
+            { col: 17, row: -4 }, // CARRY
+        ],
+    }
+})()
+
 export const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; ox4: number; oy4: number }> = [
     { ox2: -24, oy2: 0, ox3: 20, oy3: 4, ox4: 0, oy4: 20 },
     { ox2: 10, oy2: 4, ox3: 20, oy3: 0, ox4: 30, oy4: 4 },
@@ -611,4 +636,5 @@ export const PREFABS: Record<string, Prefab> = {
     And: AND_PREFAB,
     Or: OR_PREFAB,
     Xor: XOR_PREFAB,
+    HalfAdder: HALF_ADDER_PREFAB,
 }

@@ -10,6 +10,7 @@ const componentTypes = [
     { type: 'And', label: 'AND' },
     { type: 'Or', label: 'OR' },
     { type: 'Xor', label: 'XOR' },
+    { type: 'HalfAdder', label: 'Half Adder' },
 ] as const
 
 interface Props {

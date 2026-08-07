@@ -2,13 +2,13 @@ import { World } from '../src/kernel/world/World'
 import { Not } from '../src/kernel/gates/Not'
 import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
-import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB } from '../src/kernel/world/prefabs'
+import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, HALF_ADDER_PREFAB } from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 
-const OX = 12
-const OY = 12
+const OX = 30
+const OY = 30
 
-function runCase(prefab: Prefab, a: 0 | 1, b: 0 | 1): { out: 0 | 1; world: World; inputPins: number[] } {
+function runCase(prefab: Prefab, inputs: (0 | 1)[]): number[] {
     const world = new World()
     for (const cell of prefab.cells) {
         const col = OX + cell.col
@@ -16,38 +16,33 @@ function runCase(prefab: Prefab, a: 0 | 1, b: 0 | 1): { out: 0 | 1; world: World
         if (cell.kind === 'not') world.setComponent(col, row, new Not(cell.rotation ?? 0))
         else world.setWire(col, row)
     }
-    const [ia, ib] = prefab.inputs
-    world.setComponent(OX + ia.col - 1, OY + ia.row, a === 1 ? new Vcc() : new Gnd())
-    world.setComponent(OX + ib.col - 1, OY + ib.row, b === 1 ? new Vcc() : new Gnd())
+    prefab.inputs.forEach((port, i) => {
+        world.setComponent(OX + port.col - 1, OY + port.row, inputs[i] === 1 ? new Vcc() : new Gnd())
+    })
     world.step()
-    const out = prefab.outputs[0]
-    const inputPins: number[] = []
-    for (const cell of prefab.cells) {
-        if (cell.kind !== 'not') continue
-        const kernel = world.get(OX + cell.col, OY + cell.row)
-        if (kernel && kernel.kind === 'component') {
-            inputPins.push(kernel.component.pins.get('in')!.value)
-        }
-    }
-    return {
-        out: world.getCellValue(World.cellId(OX + out.col, OY + out.row)),
-        world,
-        inputPins,
-    }
+    return prefab.outputs.map((o) => world.getCellValue(World.cellId(OX + o.col, OY + o.row)))
 }
 
-function verify(prefab: Prefab, expected: (a: 0 | 1, b: 0 | 1) => 0 | 1, notInputs: (a: 0 | 1, b: 0 | 1) => (0 | 1)[]): boolean {
+function enumerate(n: number): (0 | 1)[][] {
+    const out: (0 | 1)[][] = []
+    for (let mask = 0; mask < 1 << n; mask++) {
+        const row: (0 | 1)[] = []
+        for (let i = 0; i < n; i++) row.push(((mask >> i) & 1) as 0 | 1)
+        out.push(row)
+    }
+    return out
+}
+
+function verify(prefab: Prefab, expected: (ins: (0 | 1)[]) => number[]): boolean {
     let ok = true
-    for (const a of [0, 1] as const) {
-        for (const b of [0, 1] as const) {
-            const { out, inputPins } = runCase(prefab, a, b)
-            const want = expected(a, b)
-            const status = out === want ? 'OK ' : 'FAIL'
-            if (out !== want) ok = false
-            console.log(
-                `  ${prefab.name} a=${a} b=${b} -> out=${out} want=${want} ${status}  notInputs=[${inputPins.join(',')}] want=[${notInputs(a, b).join(',')}]`
-            )
-        }
+    for (const ins of enumerate(prefab.inputs.length)) {
+        const got = runCase(prefab, ins)
+        const want = expected(ins)
+        const status = got.every((v, i) => v === want[i]) ? 'OK' : 'FAIL'
+        if (status === 'FAIL') ok = false
+        console.log(
+            `  ${prefab.name} in=[${ins.join(',')}] -> out=[${got.join(',')}] want=[${want.join(',')}] ${status}`
+        )
     }
     return ok
 }
@@ -55,16 +50,20 @@ function verify(prefab: Prefab, expected: (a: 0 | 1, b: 0 | 1) => 0 | 1, notInpu
 let allOk = true
 
 console.log('--- NAND ---')
-allOk = verify(NAND_PREFAB, (a, b) => (!(a && b) ? 1 : 0), (a) => [a, a, 0, 0, 0, 0, 0, 0])
-
+allOk = verify(NAND_PREFAB, ([a, b]) => [(a && b ? 0 : 1) as number]) && allOk
 console.log('--- AND ---')
-allOk = verify(AND_PREFAB, (a, b) => (a && b ? 1 : 0), (a) => [a, a, 0, 0, 0, 0, 0, 0])
-
+allOk = verify(AND_PREFAB, ([a, b]) => [(a && b ? 1 : 0) as number]) && allOk
 console.log('--- OR ---')
-allOk = verify(OR_PREFAB, (a, b) => (a || b ? 1 : 0), (a) => [a, a, 0, 0, 0, 0, 0, 0]) && allOk
-
+allOk = verify(OR_PREFAB, ([a, b]) => [(a || b ? 1 : 0) as number]) && allOk
 console.log('--- XOR ---')
-allOk = verify(XOR_PREFAB, (a, b) => (a !== b ? 1 : 0), (a) => [a, a, 0, 0, 0, 0, 0, 0]) && allOk
+allOk = verify(XOR_PREFAB, ([a, b]) => [(a !== b ? 1 : 0) as number]) && allOk
+console.log('--- HALF ADDER ---')
+allOk = verify(HALF_ADDER_PREFAB, ([a, b]) => [
+    (a !== b ? 1 : 0) as number,
+    (a && b ? 1 : 0) as number,
+]) && allOk
+console.log('--- MUX ---')
+console.log('  SKIPPED: single-layer routing deadlock (sel/!sel purity), needs channel router')
 
 console.log(allOk ? 'ALL PASS' : 'FAILURES FOUND')
 process.exit(allOk ? 0 : 1)
