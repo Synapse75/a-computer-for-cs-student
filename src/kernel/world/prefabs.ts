@@ -145,7 +145,7 @@ function routeNetlist(
     maxIterations: number
 ): Map<string, Point[]> | null {
     const routed = new Map<string, Point[]>()
-    const pending: string[] = [...order]
+    const pending: string[] = [...order].sort(() => rng() - 0.5)
     let iterations = 0
 
     const computeBlocked = (name: string, terminals: Point[]): Set<string> => {
@@ -207,7 +207,7 @@ function routeNetlist(
                 x.localeCompare(y)
         )
         let ripped = false
-        for (const other of candidates.slice(0, 2)) {
+        for (const other of candidates.slice(0, 3)) {
             const otherPath = routed.get(other)!
             routed.delete(other)
             path = tryRoute(name)
@@ -218,6 +218,27 @@ function routeNetlist(
                 break
             }
             routed.set(other, otherPath)
+        }
+        if (!ripped && candidates.length >= 2) {
+            for (let i = 0; i < candidates.length && !ripped; i++) {
+                for (let j = i + 1; j < candidates.length && !ripped; j++) {
+                    const a = candidates[i]
+                    const b = candidates[j]
+                    const pa = routed.get(a)!
+                    const pb = routed.get(b)!
+                    routed.delete(a)
+                    routed.delete(b)
+                    path = tryRoute(name)
+                    if (path) {
+                        routed.set(name, path)
+                        pending.unshift(a, b)
+                        ripped = true
+                    } else {
+                        routed.set(a, pa)
+                        routed.set(b, pb)
+                    }
+                }
+            }
         }
         if (!ripped) throw new Error(`XOR route failed for net ${name}`)
     }
@@ -257,6 +278,9 @@ export const NAND_PREFAB: Prefab = fromAscii([
     '..WO',
     'INW.',
 ])
+
+/** Single NOT as a prefab: input port (0,0), NOT (1,0), output port (2,0). */
+export const NOT_PREFAB: Prefab = fromAscii(['INO'])
 
 export const AND_PREFAB: Prefab = fromAscii([
     'INW..',
@@ -435,6 +459,58 @@ export function buildXorVariantWide(ox2: number, oy2: number, ox3: number, oy3: 
 
 export function buildXorRotated(placements: NandPlacement[], order: string[], seed = 0): Prefab {
     return buildXorWithPlacements(WIDE_NAND_PREFAB, placements, order, mulberry32(seed))
+}
+
+interface PlacedPart {
+    prefab: Prefab
+    ox: number
+    oy: number
+    rotation?: 0 | 1 | 2 | 3
+}
+
+/**
+ * Generic prefab composer: place verified prefabs at offsets, then route the
+ * given nets with the seeded A* + rip-up router.
+ */
+export function composePrefab(
+    parts: PlacedPart[],
+    nets: Record<string, Point[]>,
+    order: string[],
+    seed: number
+): Prefab {
+    const cells: PrefabCell[] = []
+    const add = (col: number, row: number, kind: PrefabCell['kind']) => cells.push({ col, row, kind })
+    const placed = parts.map((p) => ({ ...p, prefab: rotatePrefab(p.prefab, p.rotation ?? 0) }))
+    for (const p of placed) placePrefab(cells, p.prefab, p.ox, p.oy)
+
+    const allTerminalAndComp = new Set<string>()
+    const cellKinds = new Map<string, PrefabCell['kind']>()
+    for (const cell of cells) allTerminalAndComp.add(cellKey(cell.col, cell.row))
+    for (const cell of cells) cellKinds.set(cellKey(cell.col, cell.row), cell.kind)
+    for (const net of Object.values(nets)) {
+        for (const t of net) {
+            const k = cellKey(t.col, t.row)
+            allTerminalAndComp.add(k)
+            if (!cellKinds.has(k)) cellKinds.set(k, 'port')
+        }
+    }
+
+    const allTerminals = Object.values(nets).flat()
+    const bounds: Bounds = {
+        minCol: Math.min(...allTerminals.map((t) => t.col)) - 8,
+        maxCol: Math.max(...allTerminals.map((t) => t.col)) + 8,
+        minRow: Math.min(...allTerminals.map((t) => t.row)) - 8,
+        maxRow: Math.max(...allTerminals.map((t) => t.row)) + 8,
+    }
+    const routed = routeNetlist(nets, order, bounds, allTerminalAndComp, cellKinds, mulberry32(seed), 300)
+    if (!routed) throw new Error('composePrefab: routing failed')
+    for (const path of routed.values()) {
+        for (const p of path) {
+            const k = cellKey(p.col, p.row)
+            if (!allTerminalAndComp.has(k)) add(p.col, p.row, 'wire')
+        }
+    }
+    return { name: 'Composite', cells, inputs: [], outputs: [] }
 }
 
 /**
