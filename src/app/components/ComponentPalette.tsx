@@ -19,12 +19,22 @@ const componentTypes = [
 interface Props {
     wireMode: boolean
     collapseMode: boolean
+    collapsedPlacement: boolean
     onDragStart: (type: string) => void
     onToggleWire: () => void
     onToggleCollapse: () => void
+    onToggleCollapsedPlacement: () => void
 }
 
-export const ComponentPalette: FC<Props> = ({ wireMode, collapseMode, onDragStart, onToggleWire, onToggleCollapse }) => {
+export const ComponentPalette: FC<Props> = ({
+    wireMode,
+    collapseMode,
+    collapsedPlacement,
+    onDragStart,
+    onToggleWire,
+    onToggleCollapse,
+    onToggleCollapsedPlacement,
+}) => {
     return (
         <div style={{
             width: 150,
@@ -92,8 +102,27 @@ export const ComponentPalette: FC<Props> = ({ wireMode, collapseMode, onDragStar
                 }} />
                 Collapse
             </button>
+            <button
+                onClick={onToggleCollapsedPlacement}
+                style={{
+                    ...btnStyle,
+                    background: collapsedPlacement ? '#4a4a4a' : CSS.button,
+                    border: `1px solid ${collapsedPlacement ? '#9a9a9a' : CSS.buttonBorder}`
+                }}
+            >
+                <span style={{
+                    display: 'inline-block',
+                    width: 12,
+                    height: 12,
+                    marginRight: 8,
+                    background: CSS.signal1,
+                    border: `1px solid ${CSS.blockBorder}`,
+                    verticalAlign: 'middle'
+                }} />
+                Collapsed Place
+            </button>
             <div style={{ color: CSS.text, fontSize: 10, marginTop: 8, opacity: 0.7, lineHeight: 1.4 }}>
-                拖出元件到画布；Wire 模式画导线；Collapse 模式框选预制体后折叠（右键展开）
+                拖出元件到画布；Wire 画导线；Collapse 框选折叠；Collapsed Place 让预制体以单块放置（右键展开）
             </div>
         </div>
     )

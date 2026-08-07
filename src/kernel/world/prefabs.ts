@@ -142,7 +142,8 @@ function routeNetlist(
     allCells: Set<string>,
     cellKinds: Map<string, PrefabCell['kind']>,
     rng: () => number,
-    maxIterations: number
+    maxIterations: number,
+    maxExpansions = 12000
 ): Map<string, Point[]> | null {
     const routed = new Map<string, Point[]>()
     const pending: string[] = [...order].sort(() => rng() - 0.5)
@@ -179,7 +180,7 @@ function routeNetlist(
     const tryRoute = (name: string): Point[] | null => {
         const terminals = netDefs[name]
         const blocked = computeBlocked(name, terminals)
-        return routeChain(terminals, blocked, bounds, rng, 12000)
+        return routeChain(terminals, blocked, bounds, rng, maxExpansions)
     }
 
     const bboxOf = (pts: Point[]): Bounds => ({
@@ -486,7 +487,8 @@ export function composePrefab(
     parts: PlacedPart[],
     nets: Record<string, Point[]>,
     order: string[],
-    seed: number
+    seed: number,
+    options: { iterations?: number; maxExpansions?: number; padding?: number } = {}
 ): Prefab {
     const cells: PrefabCell[] = []
     const add = (col: number, row: number, kind: PrefabCell['kind']) => cells.push({ col, row, kind })
@@ -506,13 +508,23 @@ export function composePrefab(
     }
 
     const allTerminals = Object.values(nets).flat()
+    const padding = options.padding ?? 8
     const bounds: Bounds = {
-        minCol: Math.min(...allTerminals.map((t) => t.col)) - 8,
-        maxCol: Math.max(...allTerminals.map((t) => t.col)) + 8,
-        minRow: Math.min(...allTerminals.map((t) => t.row)) - 8,
-        maxRow: Math.max(...allTerminals.map((t) => t.row)) + 8,
+        minCol: Math.min(...allTerminals.map((t) => t.col)) - padding,
+        maxCol: Math.max(...allTerminals.map((t) => t.col)) + padding,
+        minRow: Math.min(...allTerminals.map((t) => t.row)) - padding,
+        maxRow: Math.max(...allTerminals.map((t) => t.row)) + padding,
     }
-    const routed = routeNetlist(nets, order, bounds, allTerminalAndComp, cellKinds, mulberry32(seed), 300)
+    const routed = routeNetlist(
+        nets,
+        order,
+        bounds,
+        allTerminalAndComp,
+        cellKinds,
+        mulberry32(seed),
+        options.iterations ?? 300,
+        options.maxExpansions ?? 12000
+    )
     if (!routed) throw new Error('composePrefab: routing failed')
     for (const path of routed.values()) {
         for (const p of path) {

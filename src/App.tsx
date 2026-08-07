@@ -80,6 +80,7 @@ function App() {
     const [placingType, setPlacingType] = useState<string | null>(null)
     const [wireMode, setWireMode] = useState(false)
     const [collapseMode, setCollapseMode] = useState(false)
+    const [collapsedPlacement, setCollapsedPlacement] = useState(false)
     const [ghostPos, setGhostPos] = useState({ x: 0, y: 0, occupied: false })
 
     const wireModeRef = useRef(false)
@@ -90,6 +91,10 @@ function App() {
     useEffect(() => {
         collapseModeRef.current = collapseMode
     }, [collapseMode])
+    const collapsedPlacementRef = useRef(false)
+    useEffect(() => {
+        collapsedPlacementRef.current = collapsedPlacement
+    }, [collapsedPlacement])
 
     if (!worldRef.current) worldRef.current = new World()
 
@@ -411,6 +416,36 @@ function App() {
         [matchPrefab, expandComposite, refreshWires]
     )
 
+    const placePrefabCollapsed = useCallback(
+        (type: string, col: number, row: number) => {
+            const world = worldRef.current!
+            const worldContainer = worldContainerRef.current
+            const prefab = PREFABS[type]
+            if (!worldContainer || !prefab || world.has(col, row)) return
+            let kernel: Composite
+            try {
+                kernel = new Composite({ ...prefab, name: type })
+            } catch {
+                return
+            }
+            const view = createCompositeView(kernel)
+            view.root.x = col * GRID_SIZE
+            view.root.y = row * GRID_SIZE
+            worldContainer.addChild(view.root)
+            componentViewsRef.current.set(World.cellId(col, row), view)
+            world.setComponent(col, row, kernel)
+            view.body.eventMode = 'static'
+            view.body.cursor = 'pointer'
+            view.body.on('pointerdown', (event) => {
+                if (event.button !== 2) return
+                expandComposite(col, row)
+            })
+            world.recompute()
+            refreshWires()
+        },
+        [expandComposite, refreshWires]
+    )
+
     // Default demo: a static Vcc->NOT->NOT->(Gnd) reference row plus a
     // Clock-driven NOT chain (blinks at the clock's pace), both ending at Gnd.
     const buildDefaultDemo = useCallback(() => {
@@ -497,7 +532,8 @@ function App() {
                     const wx = (cx - w.x) / w.scale.x
                     const wy = (cy - w.y) / w.scale.y
                     const { col, row } = cellFromWorld(wx, wy)
-                    if (PREFABS[placingType]) addPrefabAt(placingType, col, row)
+                    if (PREFABS[placingType] && collapsedPlacementRef.current) placePrefabCollapsed(placingType, col, row)
+                    else if (PREFABS[placingType]) addPrefabAt(placingType, col, row)
                     else addComponentAt(placingType, col, row)
                 }
             }
@@ -510,7 +546,7 @@ function App() {
             document.removeEventListener('mousemove', onMouseMove)
             document.removeEventListener('mouseup', onMouseUp)
         }
-    }, [placingType, addComponentAt, addPrefabAt])
+    }, [placingType, addComponentAt, addPrefabAt, placePrefabCollapsed])
 
     // --- wire drawing mode: hold left button and drag to paint a continuous run ---
     useEffect(() => {
@@ -857,20 +893,30 @@ function App() {
                 <ComponentPalette
                     wireMode={wireMode}
                     collapseMode={collapseMode}
+                    collapsedPlacement={collapsedPlacement}
                     onDragStart={(type) => {
                         setWireMode(false)
                         setCollapseMode(false)
+                        setCollapsedPlacement(false)
                         setPlacingType(type)
                     }}
                     onToggleWire={() => {
                         setPlacingType(null)
                         setCollapseMode(false)
+                        setCollapsedPlacement(false)
                         setWireMode((v) => !v)
                     }}
                     onToggleCollapse={() => {
                         setPlacingType(null)
                         setWireMode(false)
+                        setCollapsedPlacement(false)
                         setCollapseMode((v) => !v)
+                    }}
+                    onToggleCollapsedPlacement={() => {
+                        setPlacingType(null)
+                        setWireMode(false)
+                        setCollapseMode(false)
+                        setCollapsedPlacement((v) => !v)
                     }}
                 />
                 <div ref={containerRef} style={{ flex: 1 }} />
