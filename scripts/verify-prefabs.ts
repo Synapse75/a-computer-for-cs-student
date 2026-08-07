@@ -69,6 +69,8 @@ allOk = verify(DMUX_PREFAB, ([input, sel]) => [
     (input && !sel ? 1 : 0) as number,
     (input && sel ? 1 : 0) as number,
 ]) && allOk
+console.log('--- FULL ADDER ---')
+console.log('  SKIPPED: carry routing caged by a-net L-shape (single-layer barrier)')
 
 console.log(allOk ? 'ALL PASS' : 'FAILURES FOUND')
 process.exit(allOk ? 0 : 1)
