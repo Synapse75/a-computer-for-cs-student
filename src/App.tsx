@@ -5,13 +5,17 @@ import { Gnd } from './kernel/sources/Gnd'
 import { Clock } from './kernel/sources/Clock'
 import { Not } from './kernel/gates/Not'
 import { Dff } from './kernel/gates/Dff'
+import { Composite } from './kernel/composites/Composite'
 import { World } from './kernel/world/World'
 import { PREFABS } from './kernel/world/prefabs'
+import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, HALF_ADDER_PREFAB, MUX_PREFAB, DMUX_PREFAB } from './kernel/world/prefabs'
+import type { Prefab } from './kernel/world/prefabs'
 import { createVccView } from './render/components/VccView'
 import { createGndView } from './render/components/GndView'
 import { createClockView } from './render/components/ClockView'
 import { createNotView } from './render/components/NotView'
 import { createDffView } from './render/components/DffView'
+import { createCompositeView } from './render/components/CompositeView'
 import { createGridBackground } from './render/components/GridBackground'
 import { createWireView, paintWire } from './render/components/WireView'
 import { GRID_SIZE } from './render/utils/snap'
@@ -27,6 +31,7 @@ const VIEW_FACTORIES: Record<string, (kernel: any) => ComponentView> = {
     Clock: (k) => createClockView(k),
     Not: (k) => createNotView(k),
     Dff: (k) => createDffView(k),
+    Composite: (k) => createCompositeView(k),
 }
 
 const KERNEL_FACTORIES: Record<string, () => any> = {
@@ -36,6 +41,16 @@ const KERNEL_FACTORIES: Record<string, () => any> = {
     Not: () => new Not(),
     Dff: () => new Dff(),
 }
+
+const COLLAPSIBLE: Array<{ type: string; prefab: Prefab }> = [
+    { type: 'Nand', prefab: NAND_PREFAB },
+    { type: 'And', prefab: AND_PREFAB },
+    { type: 'Or', prefab: OR_PREFAB },
+    { type: 'Xor', prefab: XOR_PREFAB },
+    { type: 'HalfAdder', prefab: HALF_ADDER_PREFAB },
+    { type: 'Mux', prefab: MUX_PREFAB },
+    { type: 'Dmux', prefab: DMUX_PREFAB },
+]
 
 function cellFromWorld(wx: number, wy: number): { col: number; row: number; id: CellId } {
     const col = Math.floor(wx / GRID_SIZE)
@@ -64,12 +79,17 @@ function App() {
     const [speed, setSpeed] = useState(1)
     const [placingType, setPlacingType] = useState<string | null>(null)
     const [wireMode, setWireMode] = useState(false)
+    const [collapseMode, setCollapseMode] = useState(false)
     const [ghostPos, setGhostPos] = useState({ x: 0, y: 0, occupied: false })
 
     const wireModeRef = useRef(false)
     useEffect(() => {
         wireModeRef.current = wireMode
     }, [wireMode])
+    const collapseModeRef = useRef(false)
+    useEffect(() => {
+        collapseModeRef.current = collapseMode
+    }, [collapseMode])
 
     if (!worldRef.current) worldRef.current = new World()
 
@@ -277,6 +297,119 @@ function App() {
         world.recompute()
         refreshWires()
     }, [attachComponent, placeWireCell, refreshWires])
+
+    const expandComposite = useCallback(
+        (col: number, row: number) => {
+            const world = worldRef.current!
+            const worldContainer = worldContainerRef.current
+            const cell = world.get(col, row)
+            if (!worldContainer || !cell || cell.kind !== 'component' || !(cell.component instanceof Composite)) return
+            const type = cell.component.prefabName
+            if (!PREFABS[type]) return
+            const view = componentViewsRef.current.get(World.cellId(col, row))
+            if (view) {
+                view.root.destroy({ children: true })
+                componentViewsRef.current.delete(World.cellId(col, row))
+            }
+            world.remove(col, row)
+            addPrefabAt(type, col, row)
+        },
+        [addPrefabAt]
+    )
+
+    const matchPrefab = useCallback(
+        (cells: Array<{ col: number; row: number; kind: 'not' | 'wire'; rotation?: number }>) => {
+            const minC = Math.min(...cells.map((c) => c.col))
+            const minR = Math.min(...cells.map((c) => c.row))
+            const norm = new Map<string, { kind: string; rotation?: number }>()
+            for (const c of cells) norm.set(`${c.col - minC},${c.row - minR}`, { kind: c.kind, rotation: c.rotation })
+            for (const entry of COLLAPSIBLE) {
+                const prefab = entry.prefab
+                let ok = true
+                if (prefab.cells.length !== cells.length) continue
+                for (const pc of prefab.cells) {
+                    const found = norm.get(`${pc.col},${pc.row}`)
+                    if (!found) {
+                        ok = false
+                        break
+                    }
+                    if (pc.kind === 'not') {
+                        if (found.kind !== 'not' || (found.rotation ?? 0) !== (pc.rotation ?? 0)) {
+                            ok = false
+                            break
+                        }
+                    } else if (found.kind !== 'wire') {
+                        ok = false
+                        break
+                    }
+                }
+                if (ok) return { type: entry.type, prefab, minC, minR }
+            }
+            return null
+        },
+        []
+    )
+
+    const collapseRegion = useCallback(
+        (c0: number, r0: number, c1: number, r1: number) => {
+            const world = worldRef.current!
+            const worldContainer = worldContainerRef.current
+            if (!worldContainer) return
+            const loC = Math.min(c0, c1)
+            const hiC = Math.max(c0, c1)
+            const loR = Math.min(r0, r1)
+            const hiR = Math.max(r0, r1)
+            const cells: Array<{ col: number; row: number; kind: 'not' | 'wire'; rotation?: number }> = []
+            const ids: CellId[] = []
+            world.forEachCell((id, cell, col, row) => {
+                if (col < loC || col > hiC || row < loR || row > hiR) return
+                ids.push(id)
+                if (cell.kind === 'component') {
+                    cells.push({ col, row, kind: 'not', rotation: cell.component.rotation })
+                } else {
+                    cells.push({ col, row, kind: 'wire' })
+                }
+            })
+            if (cells.length === 0) return
+            const match = matchPrefab(cells)
+            if (!match) {
+                alert('选区需完整对应一个已知预制体（NAND/AND/OR/XOR/HalfAdder/MUX/DMUX）')
+                return
+            }
+            for (const id of ids) {
+                const view = componentViewsRef.current.get(id)
+                if (view) {
+                    view.root.destroy({ children: true })
+                    componentViewsRef.current.delete(id)
+                }
+                const wire = wireViewsRef.current.get(id)
+                if (wire) {
+                    wire.root.destroy({ children: true })
+                    wireViewsRef.current.delete(id)
+                }
+                const [cc, rr] = id.split(',').map(Number)
+                world.remove(cc, rr)
+            }
+            const kernel = new Composite({ ...match.prefab, name: match.type })
+            const view = createCompositeView(kernel)
+            const col = match.minC
+            const row = match.minR
+            view.root.x = col * GRID_SIZE
+            view.root.y = row * GRID_SIZE
+            worldContainer.addChild(view.root)
+            componentViewsRef.current.set(World.cellId(col, row), view)
+            world.setComponent(col, row, kernel)
+            view.body.eventMode = 'static'
+            view.body.cursor = 'pointer'
+            view.body.on('pointerdown', (event) => {
+                if (event.button !== 2) return
+                expandComposite(col, row)
+            })
+            world.recompute()
+            refreshWires()
+        },
+        [matchPrefab, expandComposite, refreshWires]
+    )
 
     // Default demo: a static Vcc->NOT->NOT->(Gnd) reference row plus a
     // Clock-driven NOT chain (blinks at the clock's pace), both ending at Gnd.
@@ -514,6 +647,7 @@ function App() {
             application.stage.on('pointerdown', (event) => {
                 if (event.button !== 0) return
                 if (wireModeRef.current) return
+                if (collapseModeRef.current) return
                 if (event.target !== application.stage) return
                 const ds = dragStateRef.current
                 ds.panning = true
@@ -627,13 +761,61 @@ function App() {
             application.canvas.addEventListener('pointerdown', onEraseDown)
             application.canvas.addEventListener('pointermove', onEraseMove)
             application.canvas.addEventListener('pointerup', onEraseUp)
+
+            // collapse mode: drag to select a region; on release collapse it
+            const collapseState = { active: false, startCol: 0, startRow: 0, curCol: 0, curRow: 0 }
+            const collapseRect = new Graphics()
+            w.addChild(collapseRect)
+            const toCellCl = (e: PointerEvent) => {
+                const rect = application.canvas.getBoundingClientRect()
+                const wx = (e.clientX - rect.left - w.x) / w.scale.x
+                const wy = (e.clientY - rect.top - w.y) / w.scale.y
+                return cellFromWorld(wx, wy)
+            }
+            const paintCollapseRect = () => {
+                const s = collapseState
+                collapseRect.clear()
+                const x = Math.min(s.startCol, s.curCol) * GRID_SIZE
+                const y = Math.min(s.startRow, s.curRow) * GRID_SIZE
+                const wpx = (Math.abs(s.curCol - s.startCol) + 1) * GRID_SIZE
+                const hpx = (Math.abs(s.curRow - s.startRow) + 1) * GRID_SIZE
+                collapseRect.rect(x, y, wpx, hpx)
+                collapseRect.stroke({ color: 0xaaaaaa, width: 1 })
+                collapseRect.fill({ color: 0xffffff, alpha: 0.08 })
+            }
+            const onCollapseDown = (e: PointerEvent) => {
+                if (e.button !== 0 || !collapseModeRef.current) return
+                const cell = toCellCl(e)
+                if (!cell) return
+                collapseState.active = true
+                collapseState.startCol = collapseState.curCol = cell.col
+                collapseState.startRow = collapseState.curRow = cell.row
+                paintCollapseRect()
+            }
+            const onCollapseMove = (e: PointerEvent) => {
+                if (!collapseState.active || !collapseModeRef.current) return
+                const cell = toCellCl(e)
+                if (!cell) return
+                collapseState.curCol = cell.col
+                collapseState.curRow = cell.row
+                paintCollapseRect()
+            }
+            const onCollapseUp = () => {
+                if (!collapseState.active) return
+                collapseState.active = false
+                collapseRect.clear()
+                collapseRegion(collapseState.startCol, collapseState.startRow, collapseState.curCol, collapseState.curRow)
+            }
+            application.canvas.addEventListener('pointerdown', onCollapseDown)
+            application.canvas.addEventListener('pointermove', onCollapseMove)
+            application.canvas.addEventListener('pointerup', onCollapseUp)
         })
 
         return () => {
             hoverOutlineRef.current = null
             application.destroy(true)
         }
-    }, [refreshWires, showOutlineAt, hideOutline, buildDefaultDemo, eraseAt, eraseLine])
+    }, [refreshWires, showOutlineAt, hideOutline, buildDefaultDemo, eraseAt, eraseLine, collapseRegion])
 
     return (
         <div
@@ -674,13 +856,21 @@ function App() {
             <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
                 <ComponentPalette
                     wireMode={wireMode}
+                    collapseMode={collapseMode}
                     onDragStart={(type) => {
                         setWireMode(false)
+                        setCollapseMode(false)
                         setPlacingType(type)
                     }}
                     onToggleWire={() => {
                         setPlacingType(null)
+                        setCollapseMode(false)
                         setWireMode((v) => !v)
+                    }}
+                    onToggleCollapse={() => {
+                        setPlacingType(null)
+                        setWireMode(false)
+                        setCollapseMode((v) => !v)
                     }}
                 />
                 <div ref={containerRef} style={{ flex: 1 }} />

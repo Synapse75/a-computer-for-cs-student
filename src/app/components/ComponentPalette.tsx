@@ -18,11 +18,13 @@ const componentTypes = [
 
 interface Props {
     wireMode: boolean
+    collapseMode: boolean
     onDragStart: (type: string) => void
     onToggleWire: () => void
+    onToggleCollapse: () => void
 }
 
-export const ComponentPalette: FC<Props> = ({ wireMode, onDragStart, onToggleWire }) => {
+export const ComponentPalette: FC<Props> = ({ wireMode, collapseMode, onDragStart, onToggleWire, onToggleCollapse }) => {
     return (
         <div style={{
             width: 150,
@@ -71,8 +73,27 @@ export const ComponentPalette: FC<Props> = ({ wireMode, onDragStart, onToggleWir
                 }} />
                 Wire
             </button>
+            <button
+                onClick={onToggleCollapse}
+                style={{
+                    ...btnStyle,
+                    background: collapseMode ? '#4a4a4a' : CSS.button,
+                    border: `1px solid ${collapseMode ? '#9a9a9a' : CSS.buttonBorder}`
+                }}
+            >
+                <span style={{
+                    display: 'inline-block',
+                    width: 12,
+                    height: 12,
+                    marginRight: 8,
+                    background: CSS.signal1,
+                    border: `1px solid ${CSS.blockBorder}`,
+                    verticalAlign: 'middle'
+                }} />
+                Collapse
+            </button>
             <div style={{ color: CSS.text, fontSize: 10, marginTop: 8, opacity: 0.7, lineHeight: 1.4 }}>
-                拖出元件到画布；Wire 模式下按住左键拖动绘制导线，Esc 退出
+                拖出元件到画布；Wire 模式画导线；Collapse 模式框选预制体后折叠（右键展开）
             </div>
         </div>
     )

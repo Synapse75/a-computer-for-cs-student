@@ -9,6 +9,7 @@
     "lint": "oxlint",
     "verify": "node --experimental-loader ./scripts/resolve-ts.mjs scripts/verify-prefabs.ts",
     "verify:dff": "node --experimental-loader ./scripts/resolve-ts.mjs scripts/verify-dff.ts",
+    "verify:composite": "node --experimental-loader ./scripts/resolve-ts.mjs scripts/verify-composite.ts",
     "preview": "vite preview"
   },
   "dependencies": {

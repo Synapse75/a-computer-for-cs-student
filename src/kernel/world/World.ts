@@ -268,6 +268,14 @@ export class World {
         }
     }
 
+    /** Settle combinational logic only (no clock edge): used by Composite internals. */
+    settle(): void {
+        for (let i = 0; i < 50; i++) {
+            if (!this.recompute()) break
+            this.tickGates()
+        }
+    }
+
     /** Re-tick only components that have input pins (sources like Clock must not re-toggle). */
     private tickGates(): void {
         for (const cell of this.cells.values()) {

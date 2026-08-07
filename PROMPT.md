@@ -13,6 +13,7 @@
 | 复合块：D 触发器（内核时序） | ✅ 完成（上升沿锁存验证） |
 | 复合块：MUX | ✅ 完成（真值表验证） |
 | 复合块：DMUX 1→2 | ✅ 完成（真值表验证） |
+| 折叠/展开：Composite 内核组件 | ✅ 完成（单格折叠，内部迷你 World 模拟，最多 3 入 2 出） |
 | 复合块 / 子系统 / CPU | ⏳ 未开始 |
 | 工作台 UI 与默认演示电路 | ✅ 完成 |
 
@@ -67,6 +68,7 @@ src/
 scripts/
 ├── verify-prefabs.ts  # 预制体真值表验证（node --experimental-loader scripts/resolve-ts.mjs）
 ├── verify-dff.ts      # D 触发器上升沿锁存与数据跟随验证
+├── verify-composite.ts# Composite 折叠块模拟验证
 └── resolve-ts.mjs     # Node 原生 TS 加载器（补 .ts 扩展名）
 ```
 
@@ -77,6 +79,8 @@ scripts/
 - **导线**：Wire 工具模式，左键拖动连续绘制（Bresenham 补格），单击放一格；Esc 退出。
 - **擦除**：右键单击删一格；按住右键拖动连续擦除沿线导线；元件右键单击删除。
 - **运行**：Run / Step / Reset / Speed 控制面板。
+- **折叠**：Collapse 模式框选一个已放置的预制体，折叠成单个 Composite 方块（内部模拟）；
+  右键该方块展开还原。状态型组（含 DFF）暂不支持折叠。
 
 ## 视觉规范
 
