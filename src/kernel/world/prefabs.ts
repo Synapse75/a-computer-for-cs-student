@@ -305,6 +305,16 @@ export const WIDE_NAND_PREFAB: Prefab = fromAscii([
     'INW..',
 ])
 
+// Wide AND (square 5x5): inputs 4 rows apart (own exit lanes), output NOT
+// on the right. Square so 90-degree rotation preserves connectivity.
+export const WIDE_AND_PREFAB: Prefab = fromAscii([
+    'INW..',
+    '..W..',
+    '..WNO',
+    '..W..',
+    'INW..',
+])
+
 function rotatePoint(col: number, row: number, w: number, h: number, rotation: 0 | 1 | 2 | 3): { col: number; row: number } {
     switch (rotation) {
         case 1:

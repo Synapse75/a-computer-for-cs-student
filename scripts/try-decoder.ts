@@ -1,4 +1,4 @@
-import { composePrefab, AND_PREFAB, NOT_PREFAB } from '../src/kernel/world/prefabs'
+import { composePrefab, AND_PREFAB, WIDE_AND_PREFAB, NOT_PREFAB, rotatePrefab } from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 import { World } from '../src/kernel/world/World'
 import { Not } from '../src/kernel/gates/Not'
@@ -6,52 +6,82 @@ import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
 
 function buildDecoder(seed: number): Prefab {
-    return composePrefab(
+    const wide = seed % 2 === 0
+    const and = wide ? WIDE_AND_PREFAB : AND_PREFAB
+    // For the wide AND, inputs are (0,0)/(0,4), output (4,2); rows shift by 2.
+    const spacing = wide ? 28 : 24
+    const rotations: Array<0 | 1 | 2 | 3> = [
+        (seed % 4) as 0 | 1 | 2 | 3,
+        ((seed >> 2) % 4) as 0 | 1 | 2 | 3,
+        ((seed >> 4) % 4) as 0 | 1 | 2 | 3,
+        ((seed >> 6) % 4) as 0 | 1 | 2 | 3,
+    ]
+    const rows = (i: number) => 20 + spacing * i
+    const prefab = composePrefab(
         [
             { prefab: NOT_PREFAB, ox: 0, oy: 0 },
             { prefab: NOT_PREFAB, ox: 0, oy: 2 },
-            { prefab: AND_PREFAB, ox: 0, oy: 20 },
-            { prefab: AND_PREFAB, ox: 0, oy: 44 },
-            { prefab: AND_PREFAB, ox: 0, oy: 68 },
-            { prefab: AND_PREFAB, ox: 0, oy: 92 },
+            { prefab: and, ox: 0, oy: 20, rotation: rotations[0] },
+            { prefab: and, ox: 0, oy: 20 + spacing, rotation: rotations[1] },
+            { prefab: and, ox: 0, oy: 20 + spacing * 2, rotation: rotations[2] },
+            { prefab: and, ox: 0, oy: 20 + spacing * 3, rotation: rotations[3] },
         ],
-        {
-            a: [
-                { col: 0, row: 0 },
-                { col: 0, row: 68 },
-                { col: 0, row: 92 },
-            ],
-            b: [
-                { col: 0, row: 2 },
-                { col: 0, row: 46 },
-                { col: 0, row: 94 },
-            ],
-            '!a': [
-                { col: 2, row: 0 },
-                { col: 0, row: 20 },
-                { col: 0, row: 44 },
-            ],
-            '!b': [
-                { col: 2, row: 2 },
-                { col: 0, row: 22 },
-                { col: 0, row: 70 },
-            ],
-        },
+        decoderNets(and, spacing, rotations),
         ['!a', '!b', 'a', 'b'],
         seed
     )
+    prefab.inputs = [
+        { col: 0, row: 0 },
+        { col: 0, row: 2 },
+    ]
+    prefab.outputs = rotations.map((r, i) => {
+        const o = rotatePrefab(and, r).outputs[0]
+        return { col: o.col, row: rows(i) + o.row }
+    })
+    return prefab
+}
+
+function decoderNets(
+    and: Prefab,
+    spacing: number,
+    rotations: Array<0 | 1 | 2 | 3>
+): Record<string, { col: number; row: number }[]> {
+    const rows = [20, 20 + spacing, 20 + spacing * 2, 20 + spacing * 3]
+    const rot = rotations.map((r) => rotatePrefab(and, r))
+    const in1 = rot.map((p) => p.inputs[0])
+    const in2 = rot.map((p) => p.inputs[1])
+    const p = (row: number, cell: { col: number; row: number }) => ({ col: cell.col, row: row + cell.row })
+    // AND1 (o00) = !a·!b, AND2 (o01) = !a·b, AND3 (o10) = a·!b, AND4 (o11) = a·b
+    return {
+        a: [
+            { col: 0, row: 0 },
+            p(rows[2], in1[2]),
+            p(rows[3], in1[3]),
+        ],
+        b: [
+            { col: 0, row: 2 },
+            p(rows[1], in2[1]),
+            p(rows[3], in2[3]),
+        ],
+        '!a': [
+            { col: 2, row: 0 },
+            p(rows[0], in1[0]),
+            p(rows[1], in1[1]),
+        ],
+        '!b': [
+            { col: 2, row: 2 },
+            p(rows[0], in2[0]),
+            p(rows[2], in2[2]),
+        ],
+    }
 }
 
 const OX = 40
 const OY = 40
-const OUTPUTS: Array<{ col: number; row: number }> = [
-    { col: 4, row: 21 },
-    { col: 4, row: 45 },
-    { col: 4, row: 69 },
-    { col: 4, row: 93 },
-]
-
-function verify(prefab: Prefab): boolean {
+function verify(prefab: Prefab, wide: boolean, spacing: number): boolean {
+    void wide
+    void spacing
+    const OUTPUTS = prefab.outputs
     let ok = true
     for (const a of [0, 1] as const) {
         for (const b of [0, 1] as const) {
@@ -79,8 +109,10 @@ let found = false
 for (let seed = 0; seed < 50 && !found; seed++) {
     try {
         const prefab = buildDecoder(seed)
+        const wide = seed % 2 === 0
+        const spacing = wide ? 28 : 24
         console.log(`seed ${seed}: ROUTED (${prefab.cells.length} cells)`)
-        if (verify(prefab)) {
+        if (verify(prefab, wide, spacing)) {
             console.log(`SEED ${seed} WORKS`)
             found = true
         } else {
