@@ -658,6 +658,28 @@ export const XOR_PREFAB: Prefab = (() => {
 })()
 
 /**
+ * XOR with an exposed tap of the internal X = NAND(a,b) net.
+ * The X net's top wire (10,-1) is extended to an output port at (16,-1),
+ * letting composite blocks merge X without digging into the XOR internals.
+ */
+export const XOR_TAPPED_PREFAB: Prefab = (() => {
+    const cells: PrefabCell[] = XOR_PREFAB.cells.map((cell) => ({ ...cell }))
+    for (let c = 11; c <= 16; c++) cells.push({ col: c, row: -2, kind: 'wire' })
+    cells.push({ col: 16, row: -3, kind: 'wire' })
+    cells.push({ col: 16, row: -3, kind: 'port' })
+    return {
+        name: 'XorTapped',
+        cells,
+        inputs: XOR_PREFAB.inputs,
+        outputs: [
+            { col: 14, row: 92 }, // SUM
+            { col: 16, row: -3 }, // X = NAND(a,b)
+        ],
+    }
+})()
+
+
+/**
  * Half adder: SUM = a XOR b, CARRY = a AND b.
  * Reuses the XOR prefab: X = NAND(a,b) is tapped inside, one extra NOT
  * computes CARRY = NOT(X) = a AND b.

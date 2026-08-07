@@ -2,7 +2,7 @@ import { World } from '../src/kernel/world/World'
 import { Not } from '../src/kernel/gates/Not'
 import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
-import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, HALF_ADDER_PREFAB, MUX_PREFAB, DMUX_PREFAB } from '../src/kernel/world/prefabs'
+import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, XOR_TAPPED_PREFAB, HALF_ADDER_PREFAB, MUX_PREFAB, DMUX_PREFAB } from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 
 const OX = 30
@@ -57,6 +57,11 @@ console.log('--- OR ---')
 allOk = verify(OR_PREFAB, ([a, b]) => [(a || b ? 1 : 0) as number]) && allOk
 console.log('--- XOR ---')
 allOk = verify(XOR_PREFAB, ([a, b]) => [(a !== b ? 1 : 0) as number]) && allOk
+console.log('--- XOR TAPPED ---')
+allOk = verify(XOR_TAPPED_PREFAB, ([a, b]) => [
+    (a !== b ? 1 : 0) as number,
+    (a && b ? 0 : 1) as number,
+]) && allOk
 console.log('--- HALF ADDER ---')
 allOk = verify(HALF_ADDER_PREFAB, ([a, b]) => [
     (a !== b ? 1 : 0) as number,
@@ -69,6 +74,8 @@ allOk = verify(DMUX_PREFAB, ([input, sel]) => [
     (input && !sel ? 1 : 0) as number,
     (input && sel ? 1 : 0) as number,
 ]) && allOk
+console.log('--- FULL ADDER ---')
+console.log('  SKIPPED: XOR X-net has no external exit (caged by a-net L + N3/b)')
 console.log('--- FULL ADDER ---')
 console.log('  SKIPPED: carry routing caged by a-net L-shape (single-layer barrier)')
 
