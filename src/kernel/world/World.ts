@@ -253,7 +253,15 @@ export class World {
 
     /** One simulation step: tick all components, then settle wire networks until stable. */
     step(): void {
+        // Phase 1: settle combinational logic with the clock held, so data is
+        // stable before the clock edge (edge-triggered registers latch settled d).
+        for (let i = 0; i < 50; i++) {
+            if (!this.recompute()) break
+            this.tickGates()
+        }
+        // Phase 2: clock edge (Clock toggles; Dff latches d on the rising edge).
         this.tickAll()
+        // Phase 3: settle the post-edge state.
         for (let i = 0; i < 50; i++) {
             if (!this.recompute()) break
             this.tickGates()

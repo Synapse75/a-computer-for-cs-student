@@ -4,12 +4,14 @@ import { Vcc } from './kernel/sources/Vcc'
 import { Gnd } from './kernel/sources/Gnd'
 import { Clock } from './kernel/sources/Clock'
 import { Not } from './kernel/gates/Not'
+import { Dff } from './kernel/gates/Dff'
 import { World } from './kernel/world/World'
 import { PREFABS } from './kernel/world/prefabs'
 import { createVccView } from './render/components/VccView'
 import { createGndView } from './render/components/GndView'
 import { createClockView } from './render/components/ClockView'
 import { createNotView } from './render/components/NotView'
+import { createDffView } from './render/components/DffView'
 import { createGridBackground } from './render/components/GridBackground'
 import { createWireView, paintWire } from './render/components/WireView'
 import { GRID_SIZE } from './render/utils/snap'
@@ -24,6 +26,7 @@ const VIEW_FACTORIES: Record<string, (kernel: any) => ComponentView> = {
     Gnd: (k) => createGndView(k),
     Clock: (k) => createClockView(k),
     Not: (k) => createNotView(k),
+    Dff: (k) => createDffView(k),
 }
 
 const KERNEL_FACTORIES: Record<string, () => any> = {
@@ -31,6 +34,7 @@ const KERNEL_FACTORIES: Record<string, () => any> = {
     Gnd: () => new Gnd(),
     Clock: () => new Clock(),
     Not: () => new Not(),
+    Dff: () => new Dff(),
 }
 
 function cellFromWorld(wx: number, wy: number): { col: number; row: number; id: CellId } {

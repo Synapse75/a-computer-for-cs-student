@@ -6,6 +6,7 @@ const componentTypes = [
     { type: 'Vcc', label: 'Vcc (1)' },
     { type: 'Gnd', label: 'Gnd (0)' },
     { type: 'Clock', label: 'Clock' },
+    { type: 'Dff', label: 'DFF' },
     { type: 'Nand', label: 'NAND' },
     { type: 'And', label: 'AND' },
     { type: 'Or', label: 'OR' },
