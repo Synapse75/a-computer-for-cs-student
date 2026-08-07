@@ -1,19 +1,26 @@
 import { World } from '../src/kernel/world/World'
 import { Not } from '../src/kernel/gates/Not'
+import { Composite } from '../src/kernel/composites/Composite'
 import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
-import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, XOR_TAPPED_PREFAB, HALF_ADDER_PREFAB, MUX_PREFAB, DMUX_PREFAB } from '../src/kernel/world/prefabs'
+import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, XOR_TAPPED_PREFAB, HALF_ADDER_PREFAB, FULL_ADDER_PREFAB, MUX_PREFAB, DMUX_PREFAB } from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 
 const OX = 30
 const OY = 30
+
+const COMPOSITE_TYPES: Record<string, Prefab> = {
+    HalfAdder: HALF_ADDER_PREFAB,
+}
 
 function runCase(prefab: Prefab, inputs: (0 | 1)[]): number[] {
     const world = new World()
     for (const cell of prefab.cells) {
         const col = OX + cell.col
         const row = OY + cell.row
-        if (cell.kind === 'not') world.setComponent(col, row, new Not(cell.rotation ?? 0))
+        if (cell.kind === 'composite' && cell.prefab && COMPOSITE_TYPES[cell.prefab]) {
+            world.setComponent(col, row, new Composite(COMPOSITE_TYPES[cell.prefab]))
+        } else if (cell.kind === 'not') world.setComponent(col, row, new Not(cell.rotation ?? 0))
         else world.setWire(col, row)
     }
     prefab.inputs.forEach((port, i) => {
@@ -75,7 +82,11 @@ allOk = verify(DMUX_PREFAB, ([input, sel]) => [
     (input && sel ? 1 : 0) as number,
 ]) && allOk
 console.log('--- FULL ADDER ---')
-console.log('  SKIPPED: XOR X-net has no external exit (caged by a-net L + N3/b)')
+allOk = verify(FULL_ADDER_PREFAB, ([a, b, c]) => {
+    const sum = (a ^ b ^ c) as number
+    const carry = (a && b) || (c && (a !== b)) ? 1 : 0
+    return [sum, carry]
+}) && allOk
 console.log('--- FULL ADDER ---')
 console.log('  SKIPPED: carry routing caged by a-net L-shape (single-layer barrier)')
 

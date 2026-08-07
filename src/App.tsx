@@ -291,7 +291,11 @@ function App() {
         for (const cell of prefab.cells) {
             const c = col + cell.col
             const r = row + cell.row
-            if (cell.kind === 'not') {
+            if (cell.kind === 'composite' && cell.prefab && PREFABS[cell.prefab]) {
+                const kernel = new Composite({ ...PREFABS[cell.prefab], name: cell.prefab })
+                const view = createCompositeView(kernel)
+                attachComponent(kernel, view, c, r)
+            } else if (cell.kind === 'not') {
                 const kernel = new Not(cell.rotation ?? 0)
                 const view = createNotView(kernel)
                 attachComponent(kernel, view, c, r)

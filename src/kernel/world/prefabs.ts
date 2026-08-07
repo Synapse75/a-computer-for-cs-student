@@ -1,9 +1,11 @@
 export interface PrefabCell {
     col: number
     row: number
-    kind: 'not' | 'wire' | 'port'
+    kind: 'not' | 'wire' | 'port' | 'composite'
     /** Component facing (quarter turns clockwise); applies to 'not' cells. */
     rotation?: 0 | 1 | 2 | 3
+    /** For 'composite' cells: which prefab to collapse into. */
+    prefab?: string
 }
 
 export interface Prefab {
@@ -873,6 +875,52 @@ export const DMUX_PREFAB: Prefab = (() => {
     }
 })()
 
+/**
+ * Full adder (folded): two collapsed HalfAdder Composites + straight wires.
+ * HA1 at (0,0): a (left), b (bottom) -> s1 (right), c1 (top).
+ * HA2 at (8,0): s1 (left), c (bottom) -> SUM (right), c2 (top).
+ * CARRY = c1 OR c2 via row -1. Composable under decision 2B (folded blocks).
+ */
+export const FULL_ADDER_PREFAB: Prefab = (() => {
+    const cells: PrefabCell[] = []
+    const w = (col: number, row: number) => cells.push({ col, row, kind: 'wire' })
+    const p = (col: number, row: number) => cells.push({ col, row, kind: 'port' })
+    const comp = (col: number, row: number) => cells.push({ col, row, kind: 'composite', prefab: 'HalfAdder' })
+
+    comp(0, 0)
+    comp(8, 0)
+
+    // s1: HA1.out0 (1,0) -> HA2.in0 (7,0)
+    for (let c = 1; c <= 7; c++) w(c, 0)
+    // SUM: HA2.out0 (9,0)
+    w(9, 0)
+    // CARRY: HA1.out1 (0,-1) + HA2.out1 (8,-1), merged at row -2 (clear of s1)
+    w(0, -1)
+    w(8, -1)
+    for (let c = 0; c <= 8; c++) w(c, -2)
+
+    // input / output ports
+    p(-1, 0)
+    p(0, 1)
+    p(8, 1)
+    p(9, 0)
+    p(8, -2)
+
+    return {
+        name: 'FullAdder',
+        cells,
+        inputs: [
+            { col: -1, row: 0 }, // a
+            { col: 0, row: 1 }, // b
+            { col: 8, row: 1 }, // c
+        ],
+        outputs: [
+            { col: 9, row: 0 }, // SUM
+            { col: 8, row: -2 }, // CARRY
+        ],
+    }
+})()
+
 
 export const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; ox4: number; oy4: number }> = [
     { ox2: -24, oy2: 0, ox3: 20, oy3: 4, ox4: 0, oy4: 20 },
@@ -916,6 +964,7 @@ export const PREFABS: Record<string, Prefab> = {
     Or: OR_PREFAB,
     Xor: XOR_PREFAB,
     HalfAdder: HALF_ADDER_PREFAB,
+    FullAdder: FULL_ADDER_PREFAB,
     Mux: MUX_PREFAB,
     Dmux: DMUX_PREFAB,
 }
