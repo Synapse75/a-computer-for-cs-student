@@ -13,6 +13,7 @@ const componentTypes = [
     { type: 'Xor', label: 'XOR' },
     { type: 'HalfAdder', label: 'Half Adder' },
     { type: 'Mux', label: 'MUX' },
+    { type: 'Dmux', label: 'DMUX' },
 ] as const
 
 interface Props {

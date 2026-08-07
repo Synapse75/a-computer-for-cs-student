@@ -756,6 +756,89 @@ export const MUX_PREFAB: Prefab = (() => {
     }
 })()
 
+/**
+ * 1-to-2 DMux: out0 = in AND !sel, out1 = in AND sel.
+ * Same structure as MUX minus the output NAND: two wide NANDs + NOTsel,
+ * !sel routed via the outer ring, `in` fanned via the right channel.
+ */
+export const DMUX_PREFAB: Prefab = (() => {
+    const cells: PrefabCell[] = []
+    const w = (col: number, row: number) => cells.push({ col, row, kind: 'wire' })
+    const p = (col: number, row: number) => cells.push({ col, row, kind: 'port' })
+    const n = (col: number, row: number) => cells.push({ col, row, kind: 'not', rotation: 0 })
+
+    // --- NAND1 (wide) at (0,0): in (0,0), !sel (0,4), out0 (3,2) ---
+    p(0, 0)
+    p(0, 4)
+    n(1, 0)
+    n(1, 4)
+    for (let r = 0; r <= 4; r++) w(2, r)
+    p(3, 2)
+    w(4, 2)
+    cells.push({ col: 4, row: 3, kind: 'not', rotation: 1 })
+    p(4, 4)
+
+    // --- NAND2 (wide) at (0,8): in (0,8), sel (0,12), out1 (3,10) ---
+    p(0, 8)
+    p(0, 12)
+    n(1, 8)
+    n(1, 12)
+    for (let r = 8; r <= 12; r++) w(2, r)
+    p(3, 10)
+    w(4, 10)
+    cells.push({ col: 4, row: 11, kind: 'not', rotation: 1 })
+    p(4, 12)
+
+    // --- NOTsel at (1,14): sel-port (0,14), !sel out (2,14) ---
+    p(0, 14)
+    n(1, 14)
+    w(0, 13)
+    w(2, 14)
+
+    // --- !sel ring (same as MUX) ---
+    for (let c = 3; c <= 15; c++) w(c, 14)
+    for (let r = 13; r >= 5; r--) w(15, r)
+    for (let r = 6; r <= 20; r++) w(15, r)
+    for (let c = 14; c >= -2; c--) w(c, 20)
+    for (let r = 19; r >= 5; r--) w(-2, r)
+    w(-1, 5)
+    w(0, 5)
+
+    // --- in fanout: (0,0) -> NAND2.in1 (0,8) via right channel ---
+    w(0, -1)
+    w(1, -1)
+    w(1, -2)
+    w(2, -2)
+    w(3, -2)
+    w(4, -2)
+    w(5, -2)
+    w(6, -2)
+    w(6, -1)
+    for (let r = 0; r <= 8; r++) w(6, r)
+    w(5, 8)
+    w(4, 8)
+    w(4, 7)
+    w(4, 6)
+    w(3, 6)
+    w(2, 6)
+    w(1, 6)
+    w(1, 7)
+    w(0, 7)
+
+    return {
+        name: 'Dmux',
+        cells,
+        inputs: [
+            { col: 0, row: 0 }, // in
+            { col: 0, row: 14 }, // sel
+        ],
+        outputs: [
+            { col: 4, row: 4 }, // out0
+            { col: 4, row: 12 }, // out1
+        ],
+    }
+})()
+
 export const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; ox4: number; oy4: number }> = [
     { ox2: -24, oy2: 0, ox3: 20, oy3: 4, ox4: 0, oy4: 20 },
     { ox2: 10, oy2: 4, ox3: 20, oy3: 0, ox4: 30, oy4: 4 },
@@ -799,4 +882,5 @@ export const PREFABS: Record<string, Prefab> = {
     Xor: XOR_PREFAB,
     HalfAdder: HALF_ADDER_PREFAB,
     Mux: MUX_PREFAB,
+    Dmux: DMUX_PREFAB,
 }

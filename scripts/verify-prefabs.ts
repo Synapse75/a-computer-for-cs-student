@@ -2,7 +2,7 @@ import { World } from '../src/kernel/world/World'
 import { Not } from '../src/kernel/gates/Not'
 import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
-import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, HALF_ADDER_PREFAB, MUX_PREFAB } from '../src/kernel/world/prefabs'
+import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB, HALF_ADDER_PREFAB, MUX_PREFAB, DMUX_PREFAB } from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 
 const OX = 30
@@ -64,6 +64,11 @@ allOk = verify(HALF_ADDER_PREFAB, ([a, b]) => [
 ]) && allOk
 console.log('--- MUX ---')
 allOk = verify(MUX_PREFAB, ([a, b, sel]) => [(sel ? b : a) as number]) && allOk
+console.log('--- DMUX ---')
+allOk = verify(DMUX_PREFAB, ([input, sel]) => [
+    (input && !sel ? 1 : 0) as number,
+    (input && sel ? 1 : 0) as number,
+]) && allOk
 
 console.log(allOk ? 'ALL PASS' : 'FAILURES FOUND')
 process.exit(allOk ? 0 : 1)

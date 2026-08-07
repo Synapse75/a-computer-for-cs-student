@@ -1,9 +1,10 @@
-import { composePrefab, AND_PREFAB, WIDE_AND_PREFAB, NOT_PREFAB, rotatePrefab } from '../src/kernel/world/prefabs'
+import { AND_PREFAB, WIDE_AND_PREFAB, NOT_PREFAB, rotatePrefab } from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 import { World } from '../src/kernel/world/World'
 import { Not } from '../src/kernel/gates/Not'
 import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
+import { routeWithBacktracking, prefabFromRouting } from './backtrack-router'
 
 function buildDecoder(seed: number): Prefab {
     const wide = seed % 2 === 0
@@ -17,19 +18,39 @@ function buildDecoder(seed: number): Prefab {
         ((seed >> 6) % 4) as 0 | 1 | 2 | 3,
     ]
     const rows = (i: number) => 20 + spacing * i
-    const prefab = composePrefab(
-        [
-            { prefab: NOT_PREFAB, ox: 0, oy: 0 },
-            { prefab: NOT_PREFAB, ox: 0, oy: 2 },
-            { prefab: and, ox: 0, oy: 20, rotation: rotations[0] },
-            { prefab: and, ox: 0, oy: 20 + spacing, rotation: rotations[1] },
-            { prefab: and, ox: 0, oy: 20 + spacing * 2, rotation: rotations[2] },
-            { prefab: and, ox: 0, oy: 20 + spacing * 3, rotation: rotations[3] },
-        ],
-        decoderNets(and, spacing, rotations),
-        ['!a', '!b', 'a', 'b'],
-        seed
-    )
+    const parts = [
+        { prefab: NOT_PREFAB, ox: 0, oy: 0 },
+        { prefab: NOT_PREFAB, ox: 0, oy: 2 },
+        { prefab: and, ox: 0, oy: 20, rotation: rotations[0] },
+        { prefab: and, ox: 0, oy: 20 + spacing, rotation: rotations[1] },
+        { prefab: and, ox: 0, oy: 20 + spacing * 2, rotation: rotations[2] },
+        { prefab: and, ox: 0, oy: 20 + spacing * 3, rotation: rotations[3] },
+    ]
+    const nets = decoderNets(and, spacing, rotations)
+    const allCells = new Set<string>()
+    const cellKinds = new Map<string, 'not' | 'wire' | 'port'>()
+    for (const part of parts) {
+        const pref = rotatePrefab(part.prefab, part.rotation ?? 0)
+        for (const cell of pref.cells) {
+            const k = `${cell.col + part.ox},${cell.row + part.oy}`
+            allCells.add(k)
+            cellKinds.set(k, cell.kind)
+        }
+    }
+    for (const t of Object.values(nets).flat()) {
+        allCells.add(`${t.col},${t.row}`)
+        cellKinds.set(`${t.col},${t.row}`, 'port')
+    }
+    const allTerminals = Object.values(nets).flat()
+    const bounds = {
+        minCol: Math.min(...allTerminals.map((t) => t.col)) - 40,
+        maxCol: Math.max(...allTerminals.map((t) => t.col)) + 40,
+        minRow: Math.min(...allTerminals.map((t) => t.row)) - 40,
+        maxRow: Math.max(...allTerminals.map((t) => t.row)) + 40,
+    }
+    const routed = routeWithBacktracking(nets, ['!a', '!b', 'a', 'b'], bounds, allCells, cellKinds, 30)
+    if (!routed) throw new Error('routing failed')
+    const prefab = prefabFromRouting(parts, nets, routed)
     prefab.inputs = [
         { col: 0, row: 0 },
         { col: 0, row: 2 },
