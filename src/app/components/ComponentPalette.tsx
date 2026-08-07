@@ -9,6 +9,7 @@ const componentTypes = [
     { type: 'Nand', label: 'NAND' },
     { type: 'And', label: 'AND' },
     { type: 'Or', label: 'OR' },
+    { type: 'Xor', label: 'XOR' },
 ] as const
 
 interface Props {

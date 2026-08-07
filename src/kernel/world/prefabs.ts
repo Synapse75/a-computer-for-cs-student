@@ -270,12 +270,13 @@ export const OR_PREFAB: Prefab = fromAscii([
     'INNW.',
 ])
 
-// Wide NAND: inputs 4 rows apart so each port has its own exit lane
-// (top port exits up, bottom port exits down) — used for XOR composition.
+// Wide NAND (square 5x5): inputs 4 rows apart so each port has its own exit
+// lane (top port exits up, bottom port exits down). Square so 90-degree
+// rotation preserves 4-connectivity of the internal merge column.
 export const WIDE_NAND_PREFAB: Prefab = fromAscii([
     'INW..',
-    '..WO.',
     '..W..',
+    '..WO.',
     '..W..',
     'INW..',
 ])
@@ -436,6 +437,139 @@ export function buildXorRotated(placements: NandPlacement[], order: string[], se
     return buildXorWithPlacements(WIDE_NAND_PREFAB, placements, order, mulberry32(seed))
 }
 
+/**
+ * Hand-routed XOR (4 square wide NANDs, channel layout, no crossings):
+ *
+ *   N1 rot3 at (10,30): a/b enter from below, X exits upward.
+ *   N2 rot1 at (10,0) and N3 rot1 at (10,60) stacked above/below;
+ *   N4 rot0 at (10,90).
+ *
+ * Channels (each net owns its lanes):
+ *   a:  col 6 up, row -8 east, col 14 down        -> N2.in0
+ *   b:  col 14 straight down                       -> N3.in0
+ *   X:  col 12 up -> row -6 west -> col 10 down   -> N2.in1
+ *       col 12 down                               -> N3.in1
+ *   Y1: row 3 east, col 16 down, row 88 west      -> N4.in0
+ *   Y2: row 63 east, col 18 down, col 17 down,
+ *       row 96 west, col 9 up                     -> N4.in1
+ *   OUT: N4.out (13,92) -> port (14,92)
+ */
+export const XOR_PREFAB: Prefab = (() => {
+    const cells: PrefabCell[] = []
+    const w = (col: number, row: number) => cells.push({ col, row, kind: 'wire' })
+    const p = (col: number, row: number) => cells.push({ col, row, kind: 'port' })
+    const n = (col: number, row: number, rotation: 0 | 1 | 2 | 3) =>
+        cells.push({ col, row, kind: 'not', rotation })
+
+    // --- N1 rot3 at (10,30) ---
+    p(10, 34)
+    n(10, 33, 3)
+    w(10, 32)
+    w(11, 32)
+    w(12, 32)
+    p(12, 31)
+    w(13, 32)
+    w(14, 32)
+    p(14, 34)
+    n(14, 33, 3)
+
+    // --- N2 rot1 at (10,0): in0 (14,0), in1 (10,0), out (12,3) ---
+    p(14, 0)
+    p(10, 0)
+    n(14, 1, 1)
+    n(10, 1, 1)
+    w(14, 2)
+    w(13, 2)
+    w(12, 2)
+    w(11, 2)
+    w(10, 2)
+    p(12, 3)
+
+    // --- N3 rot1 at (10,60): in0 (14,60), in1 (10,60), out (12,63) ---
+    p(14, 60)
+    p(10, 60)
+    n(14, 61, 1)
+    n(10, 61, 1)
+    w(14, 62)
+    w(13, 62)
+    w(12, 62)
+    w(11, 62)
+    w(10, 62)
+    p(12, 63)
+
+    // --- N4 rot0 at (10,90): in0 (10,90), in1 (10,94), out (13,92) ---
+    p(10, 90)
+    n(11, 90, 0)
+    w(12, 90)
+    w(12, 91)
+    p(13, 92)
+    w(12, 92)
+    w(12, 93)
+    p(10, 94)
+    n(11, 94, 0)
+    w(12, 94)
+
+    // --- net a ---
+    w(10, 35)
+    w(9, 35)
+    w(8, 35)
+    w(8, 34)
+    w(7, 34)
+    w(6, 34)
+    for (let r = 33; r >= -8; r--) w(6, r)
+    for (let c = 7; c <= 14; c++) w(c, -8)
+    for (let r = -7; r <= -1; r++) w(14, r)
+
+    // --- net b ---
+    for (let r = 35; r <= 59; r++) w(14, r)
+
+    // --- net X ---
+    w(12, 30)
+    w(11, 30)
+    w(10, 30)
+    for (let r = 29; r >= 4; r--) w(10, r)
+    w(9, 4)
+    w(8, 4)
+    for (let r = 3; r >= -2; r--) w(8, r)
+    w(9, -2)
+    w(10, -2)
+    w(10, -1)
+    for (let r = 32; r <= 60; r++) w(12, r)
+    w(11, 60)
+
+    // --- net Y1 ---
+    w(13, 3)
+    w(14, 3)
+    w(15, 3)
+    w(16, 3)
+    for (let r = 4; r <= 88; r++) w(16, r)
+    for (let c = 15; c >= 10; c--) w(c, 88)
+    w(10, 89)
+
+    // --- net Y2 ---
+    for (let r = 64; r <= 86; r++) w(12, r)
+    w(11, 86)
+    w(10, 86)
+    w(9, 86)
+    w(9, 85)
+    w(8, 85)
+    for (let r = 86; r <= 94; r++) w(8, r)
+    w(9, 94)
+
+    // --- net OUT ---
+    p(14, 92)
+
+    return {
+        name: 'Xor',
+        cells,
+        inputs: [
+            { col: 10, row: 34 },
+            { col: 14, row: 34 },
+        ],
+        outputs: [{ col: 14, row: 92 }],
+    }
+})()
+
 export const XOR_VARIANTS: Array<{ ox2: number; oy2: number; ox3: number; oy3: number; ox4: number; oy4: number }> = [
     { ox2: -24, oy2: 0, ox3: 20, oy3: 4, ox4: 0, oy4: 20 },
     { ox2: 10, oy2: 4, ox3: 20, oy3: 0, ox4: 30, oy4: 4 },
@@ -476,4 +610,5 @@ export const PREFABS: Record<string, Prefab> = {
     Nand: NAND_PREFAB,
     And: AND_PREFAB,
     Or: OR_PREFAB,
+    Xor: XOR_PREFAB,
 }

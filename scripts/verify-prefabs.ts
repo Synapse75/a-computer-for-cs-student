@@ -2,7 +2,7 @@ import { World } from '../src/kernel/world/World'
 import { Not } from '../src/kernel/gates/Not'
 import { Vcc } from '../src/kernel/sources/Vcc'
 import { Gnd } from '../src/kernel/sources/Gnd'
-import { NAND_PREFAB, AND_PREFAB, OR_PREFAB } from '../src/kernel/world/prefabs'
+import { NAND_PREFAB, AND_PREFAB, OR_PREFAB, XOR_PREFAB } from '../src/kernel/world/prefabs'
 import type { Prefab } from '../src/kernel/world/prefabs'
 
 const OX = 12
@@ -64,7 +64,7 @@ console.log('--- OR ---')
 allOk = verify(OR_PREFAB, (a, b) => (a || b ? 1 : 0), (a) => [a, a, 0, 0, 0, 0, 0, 0]) && allOk
 
 console.log('--- XOR ---')
-console.log('  SKIPPED: XOR routing still in progress (see PROMPT.md)')
+allOk = verify(XOR_PREFAB, (a, b) => (a !== b ? 1 : 0), (a) => [a, a, 0, 0, 0, 0, 0, 0]) && allOk
 
 console.log(allOk ? 'ALL PASS' : 'FAILURES FOUND')
 process.exit(allOk ? 0 : 1)
